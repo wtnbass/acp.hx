@@ -1,53 +1,52 @@
 # acp.hx
 
-helix (steel plugin) の右サイドバーで Claude Code と対話するプラグイン。
-[ACP (Agent Client Protocol)](https://agentclientprotocol.com) のアダプタ `@agentclientprotocol/claude-agent-acp` を子プロセスとして起動し、JSON-RPC で話す。
-Claude Code 専用で、ほかの ACP エージェントでの動作は確認していない。
+An [Agent Client Protocol (ACP)](https://agentclientprotocol.com) client for [helix](https://helix-editor.com), written as a steel plugin. It runs a coding agent as a child process and gives you a chat sidebar on the right of the editor.
+
+**Currently only Claude Code is supported**, through the [`@agentclientprotocol/claude-agent-acp`](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp) adapter. Other ACP agents are untested.
+
+This is an unofficial project and is not affiliated with Anthropic.
 
 ```
-│ ✻ Claude Agent  Rust 入門 Markdown 作成
+│ ✻ Claude Agent  Fix the greeting
 │ ⏵⏵ Manual  ◆ Opus 5.5  ◇ Xhigh  ◉ follow
-│ ctx 34k/1.0M 3%  $0.22  5h 36%  7d 14%
+│ ctx ▰▱▱▱▱▱ 34k/1.0M 3%  $0.22  5h 36%  7d 14%
 │ ──────────────────────────────────────────
-│ ❯ sample.txt の line 20 を置換して
-│ ⏺ Edit sample.txt
-│   ⎿ sample.txt  +1 -1
-│     - line 20
-│     + LINE TWENTY
-│ ⏺ 置換しました。
+│ ❯ change "hi" to "hello" in @src/main.rs
+│ ⏺ Edit src/main.rs
+│   ⎿ src/main.rs  +1 -1
+│     - println!("hi");
+│     + println!("hello");
+│ ⏺ Done. The greeting now prints "hello".
 │ ✳ Working… (3s · ^c to interrupt)
 │ ──────────────────────────────────────────
-│ ❯ @README.md を要約して
+│ ❯ Message the agent… (/ for commands)
 │ ──────────────────────────────────────────
-│ ⏎ send · ⇧⇥ mode · ^o settings · ^r sessions …
+│ ⏎ send · ^p actions · ⇧⇥ mode · ^o settings …
 ```
 
-## 試す
+## Requirements
+
+- helix built with the steel plugin system ([mattwparas/helix, `steel-event-system` branch](https://github.com/mattwparas/helix/tree/steel-event-system))
+- Node.js (`npx` fetches the adapter on first start)
+- Claude Code, logged in (run `claude` and `/login` once)
+- `git` for `@` file completion (falls back to `find` outside a git repository)
+
+## Installation
+
+Link the repository into your steel cogs directory:
 
 ```sh
-HELIX_STEEL_CONFIG=$PWD/dev hx
+ln -s /path/to/acp.hx ~/.local/share/steel/cogs/acp
 ```
 
-`:acp-open` でパネルを開く。
-
-- `dev/check.sh`: 同じ設定を tmux で起動し、steel の読み込みエラーがあれば表示する
-- `dev/test.sh`: 台本どおりに振る舞う偽エージェント `dev/fake-agent.mjs` を相手に、plan・permission・diff・usage・ピッカー・セッション再開などを tmux 越しに確認する
-- `ACP_HX_AGENT="node dev/fake-agent.mjs" HELIX_STEEL_CONFIG=$PWD/dev hx` で偽エージェントを手で触れる（プロンプトの先頭語 `plan` / `tools` / `md` / `all` で場面を選ぶ）
-
-## 普段の設定に入れる
-
-```sh
-ln -s ~/ghq/github.com/wtnbass/acp.hx ~/.local/share/steel/cogs/acp
-```
-
-`init.scm`:
+In `init.scm`:
 
 ```scheme
 (require "acp/acp.scm")
 (acp-configure! #:width 64)
 ```
 
-`config.toml` のキー割り当て例:
+Example key bindings in `config.toml`:
 
 ```toml
 [keys.normal.space]
@@ -63,110 +62,136 @@ s = ":acp-sessions"
 a = ":acp-add-selection"
 ```
 
-## パネル内のキー
+Then run `:acp-open`.
 
-| キー | 動作 |
+### Options
+
+`acp-configure!` accepts:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `#:command` | `npx -y @agentclientprotocol/claude-agent-acp` | Command that starts the adapter. Point it at a global install to skip the `npx` startup. |
+| `#:width` | `64` | Sidebar width in columns |
+| `#:log` | `/tmp/acp-hx.log` | File that receives the agent's stderr |
+| `#:follow` | `'on` | `'on` / `'off`: whether the editor follows the files the agent touches |
+| `#:mcp-servers` | `'()` | ACP `McpServer` entries passed to every session |
+
+## Keys in the panel
+
+| Key | Action |
 | --- | --- |
-| Enter | 送信（補完候補が出ていれば確定） |
-| Alt-Enter / Ctrl-j | 改行 |
-| Esc | エディタに focus を戻す（パネルは残る） |
-| Ctrl-c | 実行中のターンを中断 / 入力をクリア |
-| Shift-Tab | mode を順に切り替え（Manual → Accept edits → Plan → Auto） |
-| Ctrl-p | アクション一覧（すべての操作とキー割り当て） |
-| Ctrl-o | 設定ピッカー（mode / model / effort / fast） |
-| Ctrl-r | 過去のセッションを選んで再開 |
-| Ctrl-n | 新しいセッション |
-| Ctrl-t | ツール出力・diff・thinking の全文表示を切り替え |
-| Ctrl-f | follow-along の切り替え |
-| `/` | スラッシュコマンドの補完（Tab / Enter で確定） |
-| `@` | ワークスペースのファイル補完。送信時に `resource_link` として添付 |
-| ↑ / ↓ | 補完候補の選択、または入力履歴 |
-| ← → Home End Ctrl-a Ctrl-e Ctrl-w Ctrl-u | 行編集 |
-| PageUp / PageDown・ホイール | スクロール |
+| Enter | Send (or accept the highlighted completion) |
+| Alt-Enter / Ctrl-j | Newline |
+| Esc | Back to the editor; the panel stays open |
+| Ctrl-c | Interrupt the running turn, or clear the input |
+| Shift-Tab | Cycle the mode (Manual → Accept edits → Plan → Auto) |
+| Ctrl-p | Action menu: every action with its key |
+| Ctrl-o | Settings: mode, model, effort, fast mode |
+| Ctrl-r | Resume an earlier session |
+| Ctrl-n | New session |
+| Ctrl-t | Show tool output, diffs and thinking in full |
+| Ctrl-f | Toggle follow-along |
+| `/` | Slash command completion (Tab / Enter to accept) |
+| `@` | Workspace file completion; mentioned files are sent as `resource_link` |
+| ↑ / ↓ | Move through completions, or through input history |
+| ← → Home End Ctrl-a Ctrl-e Ctrl-w Ctrl-u | Line editing |
+| PageUp / PageDown, mouse wheel | Scroll |
 
-permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で確定、`d` で diff 全体や計画の本文を開く、Esc で拒否。
+While a permission request is pending: ↑ ↓ or number keys to choose, Enter to confirm, `d` to open the full diff or plan, Esc to reject.
 
-トランスクリプトのツール呼び出しや thinking の見出し行をクリックすると、その項目だけ全文表示を切り替える。ツール呼び出しの本文の行をクリックすると、そのツールが触ったファイルの該当行を開く。
+Clicking the header row of a tool call or a thought expands or collapses it. Clicking the body of a tool call opens the file it touched at the right line.
 
-## コマンド
+## Commands
 
-| コマンド | 動作 |
+| Command | Action |
 | --- | --- |
-| `:acp-open` / `:acp-focus` / `:acp-close` / `:acp-toggle` | パネルの表示と focus |
-| `:acp-menu` | アクション一覧を開く |
-| `:acp-new-session` / `:acp-sessions` | 新規セッション / 過去のセッションを再開 |
-| `:acp-settings` / `:acp-mode` / `:acp-model` / `:acp-effort` / `:acp-cycle-mode` | 設定の変更 |
-| `:acp-add-file` / `:acp-add-selection` | 現在のファイル / 選択範囲を次のプロンプトに添付し、パネルに focus を移す |
-| `:acp-add-image <path>` | 画像（png / jpg / gif / webp）を次のプロンプトに添付 |
-| `:acp-diff` | 保留中の permission の diff / 計画、または直近の編集の diff を開く |
-| `:acp-review` | このセッションでエージェントが行った編集をまとめて 1 つの diff で開く |
-| `:acp-undo-edit` | 直近の編集を元に戻す（編集後のテキストがファイル中に 1 か所だけある場合）。戻したことは次のプロンプトでエージェントに伝える |
-| `:acp-yank` | 直近の返答をクリップボードにコピー |
-| `:acp-insert-code` | 直近の返答の最後のコードブロックを選択範囲の後ろに貼り付け |
-| `:acp-cancel` | 実行中のターンを中断 |
-| `:acp-retry` | 直前のプロンプトを送り直す |
-| `:acp-follow-toggle` / `:acp-expand-toggle` | follow-along / 全文表示の切り替え |
-| `:acp-wider` / `:acp-narrower` | パネル幅の変更 |
-| `:acp-restart` / `:acp-quit` | エージェントの再起動 / 停止 |
+| `:acp-open` / `:acp-focus` / `:acp-close` / `:acp-toggle` | Show, focus or hide the panel |
+| `:acp-menu` | Open the action menu |
+| `:acp-new-session` / `:acp-sessions` | Start a new session / resume an earlier one |
+| `:acp-settings` / `:acp-mode` / `:acp-model` / `:acp-effort` / `:acp-cycle-mode` | Change session settings |
+| `:acp-add-file` / `:acp-add-selection` | Attach the current file / selection to the next prompt and focus the panel |
+| `:acp-add-image <path>` | Attach an image (png, jpg, gif, webp) to the next prompt |
+| `:acp-diff` | Open the pending permission's diff or plan, or the latest edit's diff |
+| `:acp-review` | Open every edit the agent made in this session as one diff |
+| `:acp-undo-edit` | Revert the latest edit (when its new text occurs exactly once in the file); the agent is told with the next prompt |
+| `:acp-yank` | Copy the last response to the clipboard |
+| `:acp-insert-code` | Paste the last code block of the last response after the selection |
+| `:acp-cancel` | Interrupt the running turn |
+| `:acp-retry` | Send the last prompt again |
+| `:acp-follow-toggle` / `:acp-expand-toggle` | Toggle follow-along / full output |
+| `:acp-wider` / `:acp-narrower` | Resize the panel |
+| `:acp-restart` / `:acp-quit` | Restart / stop the agent |
 
-`acp-configure!` のオプション: `#:command`（`claude-agent-acp` の起動コマンド。グローバルにインストールした場合などに変える）、`#:width`、`#:log`（エージェントの stderr の出力先、既定は `/tmp/acp-hx.log`）、`#:follow`（`'on` / `'off`）、`#:mcp-servers`（各セッションに渡す ACP の McpServer のリスト）。
+## What the panel shows
 
-## 表示している情報
+- **Header**: agent name and session title
+- **Status line**: mode, model, effort, fast mode and follow-along
+- **Usage line**: context usage, session cost, and the 5-hour / 7-day rate limit usage
+- **Transcript**: your prompts, markdown responses (headings, lists, tables, code, links), thinking, tool calls with status colors, diffs and output previews, and the task plan as a checklist
 
-- ヘッダー: エージェント名、セッションタイトル（`session_info_update`）
-- 1 行目: mode・model・effort・fast mode（`configOptions`）、follow の状態
-- 2 行目: context の使用量と割合、セッションのコスト、5 時間 / 7 日のレート制限の使用率（`usage_update`）
-- 本文: ユーザー入力、Markdown で整形した返答、thinking、ツール呼び出し（状態の色、diff、出力のプレビュー）、plan のチェックリスト
+## Follow-along
 
-## Zed / VS Code の Claude 連携との対応
+The editor opens the files the agent reads or edits and jumps to the line it is working on.
 
-| 機能 | acp.hx |
+- The first entry of a tool call's `locations` is opened with `:open`, and `:goto` is used when a line is given
+- Paths outside the workspace (such as Claude's memory files) are ignored
+- When a tool call completes, its files are reloaded if they are open and have no unsaved changes
+
+## Feature coverage
+
+Compared with the Claude integrations in Zed and VS Code:
+
+| Feature | Status |
 | --- | --- |
-| ストリーミング表示・Markdown（見出し・リスト・表・コード・リンク） | ✓ |
-| ツール呼び出しの表示（状態・diff・出力）と個別の展開 | ✓ |
-| 編集・コマンド実行の許可（diff プレビュー付き） | ✓ |
-| Plan モードの計画承認 | ✓（計画本文は `d` で全文表示） |
-| mode / model / effort / fast mode の表示と変更 | ✓ |
-| context 使用量・コスト・レート制限の表示 | ✓ |
-| スラッシュコマンド・`@` ファイル・選択範囲・画像の添付 | ✓ |
-| セッションの新規作成・再開 | ✓ |
-| エージェントの作業位置の追従（follow-along） | ✓ |
-| 編集のまとめ表示・直近の編集の取り消し | ✓（`:acp-review` / `:acp-undo-edit`） |
-| 中断・プロンプトのキューイング・再送 | ✓ |
-| MCP サーバーの指定 | ✓ |
-| 過去メッセージの編集・チェックポイントへの巻き戻し | ✗（ACP に該当する仕組みがない） |
-| エディタ内でのハンク単位の accept / reject | ✗（`:acp-review` の diff 表示と `:acp-undo-edit` で代替） |
-| Bash 出力の逐次表示 | ✗（アダプタが完了時にまとめて送るため） |
+| Streaming markdown responses | ✓ |
+| Tool calls with status, diffs and output, expandable one by one | ✓ |
+| Permission prompts with a diff preview | ✓ |
+| Plan mode approval | ✓ (`d` opens the full plan) |
+| Show and change mode, model, effort and fast mode | ✓ |
+| Context usage, cost and rate limits | ✓ |
+| Slash commands, `@` files, selections and images as context | ✓ |
+| New and resumed sessions | ✓ |
+| Follow the agent through the code | ✓ |
+| Review all edits, undo the latest one | ✓ (`:acp-review` / `:acp-undo-edit`) |
+| Interrupt, queue and retry prompts | ✓ |
+| MCP servers | ✓ |
+| Edit past messages, restore checkpoints | ✗ (ACP has no equivalent) |
+| Accept or reject individual hunks in the editor | ✗ (use `:acp-review` and `:acp-undo-edit`) |
+| Live streaming of shell output | ✗ (the adapter sends it when the command finishes) |
 
-## follow-along
+## Development
 
-エージェントが読んだり編集したりしているファイルを、エディタ側で自動的に開いて該当行へ移動する。
+```sh
+HELIX_STEEL_CONFIG=$PWD/dev hx
+```
 
-- `tool_call` / `tool_call_update` の `locations` の先頭を `:open` し、`line` があれば `:goto` して画面中央に寄せる
-- ワークスペース外のパス（Claude のメモリファイルなど）は追わない
-- ツールが `completed` になったら、`locations` のファイルが開いていて未保存の変更が無ければ reload する
+`dev/init.scm` loads the plugin from this checkout, so your own helix config is left alone.
 
-## 構成
+- `dev/check.sh` starts helix with the dev config in tmux and prints any steel load error
+- `dev/test.sh` runs end-to-end checks through tmux against `dev/fake-agent.mjs`, a scripted agent that plays plans, permissions, diffs, markdown, usage, sessions and a crash without calling a model
+- `ACP_HX_AGENT="node dev/fake-agent.mjs" HELIX_STEEL_CONFIG=$PWD/dev hx` lets you drive the fake agent by hand; the first word of a prompt (`plan`, `tools`, `md`, `all`, `crash`) picks the scenario
 
-- 子プロセスの stdout を `spawn-native-thread` 上で `read-line-from-port` し、`hx.with-context` でメインスレッドに渡して状態を更新する
-- パネルは forest と同じく bg component（描画、ホイール、クリック）と fg component（focus 中だけ push してキーを受ける）の 2 枚構成。`set-editor-clip-right!` でエディタ領域を縮める
-- ピッカーは別 component をパネルの上に重ねる
-- 返答は Markdown の行単位で折り返し結果をキャッシュし、ストリーミング中は最後の行だけ組み直す
+### How it works
 
-## 対応している ACP の範囲
+- The adapter's stdout is read line by line on a `spawn-native-thread`, and every message hops to the main thread through `hx.with-context`
+- The panel is two components, like forest: a background one that draws and handles the wheel and clicks, and a foreground one pushed only while the panel has focus to take keys. `set-editor-clip-right!` shrinks the editor area
+- Pickers are another component drawn over the panel
+- Markdown is wrapped line by line and memoized, so a streaming message only re-wraps its last line
 
-- `initialize` / `session/new` / `session/load` / `session/list` / `session/prompt` / `session/cancel` / `session/set_config_option`
-- `session/update`: `agent_message_chunk` / `agent_thought_chunk` / `user_message_chunk` / `tool_call` / `tool_call_update` / `plan` / `config_option_update` / `current_mode_update` / `available_commands_update` / `usage_update` / `session_info_update`
+### ACP surface
+
+- `initialize`, `session/new`, `session/load`, `session/list`, `session/prompt`, `session/cancel`, `session/set_config_option`
+- `session/update`: `agent_message_chunk`, `agent_thought_chunk`, `user_message_chunk`, `tool_call`, `tool_call_update`, `plan`, `config_option_update`, `current_mode_update`, `available_commands_update`, `usage_update`, `session_info_update`
 - `session/request_permission`
-- プロンプトの content: `text` / `resource_link`（`@` とファイル添付） / `resource`（選択範囲） / `image`
-- `fs/*` と `terminal/*` は capability を false で宣言し、未対応
+- Prompt content: `text`, `resource_link`, `resource` (selections), `image`
+- `fs/*` and `terminal/*` are declared unsupported in the client capabilities
 
-エージェントが終了したときは、stderr のログの末尾 3 行をパネルに表示する。`session/new` が認証エラー（-32000）を返したときは、エージェント側の CLI でログインするよう案内する。
+When the agent exits, the last lines of its stderr log are shown in the panel. An authentication error (-32000) from `session/new` comes with a hint to log in through the `claude` CLI.
 
-## ハマりどころ
+### Gotchas
 
-- `write-line!` は文字列を quote 付きで書くので `write-string` を使う
-- `string->jsexpr` は JSON の数値をすべて float にするため、リクエスト ID は文字列にしている
-- `helix/static.scm` が `range` を export しているので、同名の関数は使えない
-- `:new` で作ったバッファに `insert_string` した後で閉じると helix が panic するので、diff は一時ファイル（`/tmp/acp-hx/*.diff`）に書いて開く
-- steel の読み込みエラーは起動時のステータスに一瞬出るだけなので、`dev/check.sh` で確認する
+- `write-line!` prints strings with quotes, so messages are written with `write-string`
+- `string->jsexpr` turns every JSON number into a float, so request ids are strings
+- `helix/static.scm` exports `range`, which shadows any function of that name
+- Closing a buffer created with `:new` and filled with `insert_string` panics helix, so diffs are written to temporary files under `/tmp/acp-hx/` and opened from there
+- Steel load errors only flash in the status line at startup; use `dev/check.sh` to see them
