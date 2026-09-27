@@ -35,6 +35,7 @@
          acp-review
          acp-undo-edit
          acp-menu
+         acp-retry
          acp-wider
          acp-yank
          acp-insert-code
@@ -1675,6 +1676,18 @@
         opts (indices (length opts)))
    (list (list (seg "   ↑↓ select · enter confirm · d details · esc reject" 'dim)))))
 
+(define (welcome-lines)
+  (define (row key text) (list (seg "  " 'dim) (seg key 'accent) (seg (string-append "  " text) 'dim)))
+  (list (list (seg (if (equal? *acp-status* 'ready) "Ask anything about this workspace." "Starting the agent…") 'bold))
+        '()
+        (row "@file " "attach a workspace file")
+        (row "/cmd  " "run a slash command")
+        (row "⇧⇥    " "switch mode (Manual / Accept edits / Plan …)")
+        (row "^o    " "model, effort and other settings")
+        (row "^p    " "every action")
+        (row "^r    " "resume an earlier session")
+        (row "esc   " "back to the editor, the panel stays")))
+
 (define (hint-segs)
   (list (seg "⏎ send · ^p actions · ⇧⇥ mode · ^o settings · ^r sessions · esc editor" 'dim)))
 
@@ -1797,6 +1810,11 @@
       (draw-segs frame cx y (cdr (car ls)) cw #f)
       (when (car (car ls)) (set! *acp-row-entries* (cons (cons y (car (car ls))) *acp-row-entries*)))
       (loop (cdr ls) (+ y 1))))
+  (when (and (null? *acp-entries*) (> body-h 12))
+    (let loop ([ls (welcome-lines)] [y (+ body-top 1)])
+      (when (pair? ls)
+        (draw-segs frame cx y (car ls) cw #f)
+        (loop (cdr ls) (+ y 1)))))
   (when (acp-busy?)
     (draw-segs frame cx (+ body-top (length visible)) (busy-segs) cw #f))
   (when (> *acp-scroll* 0)
@@ -2226,6 +2244,13 @@
       (set-status! "acp: no code block in the last response")))
 
 ;;@doc
+;; Send the last prompt again.
+(define (acp-retry)
+  (if (null? *acp-history*)
+      (set-status! "acp: nothing to retry")
+      (acp-send-prompt! (car *acp-history*))))
+
+;;@doc
 ;; Pick any acp.hx action from a list that also shows its key.
 (define (acp-menu)
   (define actions
@@ -2236,6 +2261,7 @@
           (list "New session" "^n" acp-new-session)
           (list "Resume session" "^r" acp-sessions)
           (list "Interrupt" "^c" acp-cancel)
+          (list "Retry last prompt" "" acp-retry)
           (list "Show diff / plan details" "d" acp-diff)
           (list "Review session edits" "" acp-review)
           (list "Undo last edit" "" acp-undo-edit)

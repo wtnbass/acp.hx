@@ -106,6 +106,7 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | `:acp-yank` | 直近の返答をクリップボードにコピー |
 | `:acp-insert-code` | 直近の返答の最後のコードブロックを選択範囲の後ろに貼り付け |
 | `:acp-cancel` | 実行中のターンを中断 |
+| `:acp-retry` | 直前のプロンプトを送り直す |
 | `:acp-follow-toggle` / `:acp-expand-toggle` | follow-along / 全文表示の切り替え |
 | `:acp-wider` / `:acp-narrower` | パネル幅の変更 |
 | `:acp-switch-agent` | `#:agents` に登録したエージェントを選んで再起動 |
