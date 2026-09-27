@@ -14,6 +14,7 @@ const request = (method, params) =>
     out({ id, method, params });
   });
 
+let lastLegacy = "";
 let configOptions = [
   { id: "mode", name: "Mode", category: "mode", type: "select", currentValue: "default",
     options: [{ value: "default", name: "Manual" }, { value: "plan", name: "Plan", _meta: { kind: "plan" } }] },
@@ -69,11 +70,20 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
   const { id, method, params } = msg;
   if (method === "initialize") out({ id, result: { protocolVersion: 1, agentInfo: { name: "fake", title: "Fake Agent", version: "0" }, agentCapabilities: {} } });
   else if (method === "session/new") {
-    out({ id, result: { sessionId: "fake-session", configOptions } });
+    // FAKE_LEGACY=1 answers with the older modes / models fields instead of configOptions
+    if (process.env.FAKE_LEGACY)
+      out({ id, result: { sessionId: "fake-session",
+        modes: { currentModeId: "ask", availableModes: [{ id: "ask", name: "Ask" }, { id: "code", name: "Code" }] },
+        models: { currentModelId: "m1", availableModels: [{ modelId: "m1", name: "Legacy One" }, { modelId: "m2", name: "Legacy Two" }] } } });
+    else out({ id, result: { sessionId: "fake-session", configOptions } });
     update("fake-session", { sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "Review the diff" }, { name: "init", description: "Create CLAUDE.md" }] });
   } else if (method === "session/set_config_option") {
     configOptions = configOptions.map((o) => (o.id === params.configId ? { ...o, currentValue: params.value } : o));
     out({ id, result: { configOptions } });
+  } else if (method === "session/set_mode" || method === "session/set_model") {
+    lastLegacy = `${method} ${params.modeId ?? params.modelId}`;
+    out({ id, result: {} });
+    update(params.sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `got ${lastLegacy}` } });
   } else if (method === "session/list") out({ id, result: { sessions: [{ sessionId: "old", title: "An old session", updatedAt: "2026-09-01T10:00:00Z" }] } });
   else if (method === "session/load") {
     update(params.sessionId, { sessionUpdate: "user_message_chunk", content: { type: "text", text: "an old question" } });

@@ -111,7 +111,7 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | `:acp-switch-agent` | `#:agents` に登録したエージェントを選んで再起動 |
 | `:acp-restart` / `:acp-quit` | エージェントの再起動 / 停止 |
 
-`acp-configure!` のオプション: `#:agents`（`(名前 . コマンド)` のリスト）、`#:command`（エージェントの起動コマンド）、`#:width`、`#:log`（エージェントの stderr の出力先、既定は `/tmp/acp-hx.log`）、`#:follow`（`'on` / `'off`）。
+`acp-configure!` のオプション: `#:agents`（`(名前 . コマンド)` のリスト）、`#:command`（エージェントの起動コマンド）、`#:width`、`#:log`（エージェントの stderr の出力先、既定は `/tmp/acp-hx.log`）、`#:follow`（`'on` / `'off`）、`#:mcp-servers`（各セッションに渡す ACP の McpServer のリスト）。
 
 ## 表示している情報
 
@@ -139,6 +139,7 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 
 - `initialize` / `session/new` / `session/load` / `session/list` / `session/prompt` / `session/cancel` / `session/set_config_option`
 - `session/update`: `agent_message_chunk` / `agent_thought_chunk` / `user_message_chunk` / `tool_call` / `tool_call_update` / `plan` / `config_option_update` / `current_mode_update` / `available_commands_update` / `usage_update` / `session_info_update`
+- `session/set_mode` / `session/set_model`（`configOptions` を返さず `modes` / `models` だけを返すエージェント向け）
 - `session/request_permission`
 - プロンプトの content: `text` / `resource_link`（`@` とファイル添付） / `resource`（選択範囲） / `image`
 - `fs/*` と `terminal/*` は capability を false で宣言し、未対応
