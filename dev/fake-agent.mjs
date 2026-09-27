@@ -81,6 +81,10 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
     out({ id, result: { configOptions } });
   } else if (method === "session/prompt") {
     const text = params.prompt.find((b) => b.type === "text")?.text ?? "";
+    if (text === "crash") {
+      process.stderr.write("fake agent: simulated crash\n");
+      process.exit(1);
+    }
     const links = params.prompt.filter((b) => b.type !== "text").map((b) => b.uri ?? b.resource?.uri);
     if (links.length) update(params.sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `attachments: ${links.join(", ")}\n\n` } });
     await scenario(params.sessionId, text.split(/\s+/)[0] || "all");

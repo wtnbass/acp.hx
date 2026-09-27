@@ -65,6 +65,16 @@ keys Escape; sleep 0.3
 keys ":acp-insert-code" Enter; sleep 0.5
 expect "fn main() {}" "insert the last code block"
 
+keys ":acp-focus" Enter; sleep 0.3
+type_ "crash"; keys Enter
+expect "fake agent: simulated crash" "agent exit shows the log tail"
+
+keys ":acp-switch-agent" Enter; sleep 0.5
+expect "Claude Code" "agent picker lists agents"
+keys Enter; sleep 1.5
+expect "Fake Agent" "switching restarts the agent"
+
+keys Escape; sleep 0.3
 keys ":acp-close" Enter; sleep 0.5
 if screen | grep -qF "Fake Agent"; then echo "FAIL close hides the panel"; fail=1; else echo "ok   close hides the panel"; fi
 

@@ -35,6 +35,7 @@
          acp-yank
          acp-insert-code
          acp-narrower
+         acp-switch-agent
          acp-configure!)
 
 ;;; ===========================================================================
@@ -44,6 +45,8 @@
 (define *acp-width* 64)
 (define *acp-log* "/tmp/acp-hx.log")
 (define *acp-follow?* #t)
+(define *acp-agents*
+  (list (cons "Claude Code" "npx -y @agentclientprotocol/claude-agent-acp")))
 
 ;;@doc
 ;; Configure acp.hx.
@@ -52,7 +55,13 @@
 ;; * #:width   - sidebar width in columns
 ;; * #:log     - file that receives the agent's stderr
 ;; * #:follow  - 'on / 'off, whether the editor follows the files the agent touches
-(define (acp-configure! #:command [command #f] #:width [width #f] #:log [log #f] #:follow [follow #f])
+;; * #:agents  - list of (name . command) offered by :acp-switch-agent; the first
+;;               one becomes the default unless #:command is given
+(define (acp-configure! #:command [command #f] #:width [width #f] #:log [log #f] #:follow [follow #f]
+                        #:agents [agents #f])
+  (when (pair? agents)
+    (set! *acp-agents* agents)
+    (set! *acp-command* (cdr (car agents))))
   (when command (set! *acp-command* command))
   (when width (set! *acp-width* width))
   (when log (set! *acp-log* log))
@@ -154,6 +163,7 @@
 ;;; state (only touched on the main thread)
 
 (define *acp-proc* #f)
+(define *acp-generation* 0) ; bumps per spawn so a dead agent's exit can't reset its successor
 (define *acp-stdin* #f)
 (define *acp-cwd* #f)
 (define *acp-agent-title* "Agent")
@@ -266,11 +276,11 @@
   (acp-write! (hash "jsonrpc" "2.0" "id" id "error" (hash "code" code "message" message))))
 
 ;; runs on a native thread; every message hops to the main thread
-(define (acp-reader-loop port)
+(define (acp-reader-loop port generation)
   (let loop ()
     (define line (with-handler (lambda (_) (eof-object)) (read-line-from-port port)))
     (if (eof-object? line)
-        (hx.with-context acp-on-exit)
+        (hx.with-context (lambda () (acp-on-exit generation)))
         (begin
           (define msg (with-handler (lambda (_) #f) (string->jsexpr line)))
           (when (hash? msg)
@@ -298,15 +308,25 @@
         [else ((car handler) (get msg 'result))])]))
   (acp-redraw!))
 
-(define (acp-on-exit)
-  (set! *acp-proc* #f)
-  (set! *acp-stdin* #f)
-  (set! *acp-session-id* #f)
-  (set! *acp-status* 'stopped)
-  (set! *acp-busy* 0)
-  (set! *acp-permission* #f)
-  (acp-error! (string-append "agent exited (log: " *acp-log* ")"))
-  (acp-redraw!))
+(define (acp-on-exit generation)
+  (when (= generation *acp-generation*)
+    (set! *acp-proc* #f)
+    (set! *acp-stdin* #f)
+    (set! *acp-session-id* #f)
+    (set! *acp-status* 'stopped)
+    (set! *acp-busy* 0)
+    (set! *acp-permission* #f)
+    (acp-error! (string-append "agent exited" (acp-log-tail) "\n(log: " *acp-log* ")"))
+    (acp-redraw!)))
+
+;; last lines of the agent's stderr, to explain why it died
+(define (acp-log-tail)
+  (with-handler
+   (lambda (_) "")
+   (let* ([port (open-input-file *acp-log*)]
+          [text (read-port-to-string port)]
+          [lines (filter (lambda (l) (not (string-blank? l))) (split-many text "\n"))])
+     (if (null? lines) "" (string-append ":\n" (string-join (take-last lines 3) "\n"))))))
 
 ;;; ===========================================================================
 ;;; agent lifecycle and sessions
@@ -327,7 +347,9 @@
                [stdout (child-stdout proc)])
           (set! *acp-proc* proc)
           (set! *acp-stdin* (child-stdin proc))
-          (spawn-native-thread (lambda () (acp-reader-loop stdout)))
+          (set! *acp-generation* (+ *acp-generation* 1))
+          (let ([generation *acp-generation*])
+            (spawn-native-thread (lambda () (acp-reader-loop stdout generation))))
           (acp-load-files! cwd)
           (acp-initialize!))
         (begin
@@ -387,7 +409,13 @@
                    (hash "cwd" *acp-cwd* "mcpServers" '())
                    (lambda (result)
                      (set! *acp-session-id* (get result 'sessionId))
-                     (acp-apply-session-result! result)))]))
+                     (acp-apply-session-result! result))
+                   (lambda (err)
+                     (set! *acp-status* 'stopped)
+                     (acp-error! (to-string "could not start a session: " (or (get err 'message) err)))
+                     ;; ACP reserves -32000 for "authentication required"
+                     (when (equal? (->int (get err 'code)) -32000)
+                       (acp-info! "log in with the agent's own CLI first (for Claude Code: run `claude` and /login)"))))]))
 
 ;;@doc
 ;; Pick a previous conversation of this workspace and resume it.
@@ -1822,8 +1850,24 @@
   (acp-quit)
   (set! *acp-proc* #f)
   (set! *acp-stdin* #f)
+  (set! *acp-session-id* #f)
+  (set! *acp-busy* 0)
+  (set! *acp-permission* #f)
+  (set! *acp-config-options* '())
+  (set! *acp-commands* '())
+  (set! *acp-usage* #f)
+  (set! *acp-session-title* #f)
   (acp-reset-transcript!)
   (acp-open))
+
+;;@doc
+;; Pick one of the configured agents and restart with it.
+(define (acp-switch-agent)
+  (acp-pick! "Agent"
+             (map (lambda (a) (list (car a) (cdr a) (cdr a) (equal? (cdr a) *acp-command*))) *acp-agents*)
+             (lambda (command)
+               (set! *acp-command* command)
+               (acp-restart))))
 
 ;;@doc
 ;; Toggle showing tool output, diffs and thinking in full.

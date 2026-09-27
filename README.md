@@ -43,7 +43,10 @@ ln -s ~/ghq/github.com/wtnbass/acp.hx ~/.local/share/steel/cogs/acp
 
 ```scheme
 (require "acp/acp.scm")
-(acp-configure! #:width 64)
+(acp-configure! #:width 64
+                ;; :acp-switch-agent で切り替えられるエージェント。先頭が既定
+                #:agents (list (cons "Claude Code" "npx -y @agentclientprotocol/claude-agent-acp")
+                               (cons "Gemini" "gemini --experimental-acp")))
 ```
 
 `config.toml` のキー割り当て例:
@@ -100,9 +103,10 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | `:acp-cancel` | 実行中のターンを中断 |
 | `:acp-follow-toggle` / `:acp-expand-toggle` | follow-along / 全文表示の切り替え |
 | `:acp-wider` / `:acp-narrower` | パネル幅の変更 |
+| `:acp-switch-agent` | `#:agents` に登録したエージェントを選んで再起動 |
 | `:acp-restart` / `:acp-quit` | エージェントの再起動 / 停止 |
 
-`acp-configure!` のオプション: `#:command`（エージェントの起動コマンド）、`#:width`、`#:log`（エージェントの stderr の出力先、既定は `/tmp/acp-hx.log`）、`#:follow`（`'on` / `'off`）。
+`acp-configure!` のオプション: `#:agents`（`(名前 . コマンド)` のリスト）、`#:command`（エージェントの起動コマンド）、`#:width`、`#:log`（エージェントの stderr の出力先、既定は `/tmp/acp-hx.log`）、`#:follow`（`'on` / `'off`）。
 
 ## 表示している情報
 
@@ -133,6 +137,8 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 - `session/request_permission`
 - プロンプトの content: `text` / `resource_link`（`@` とファイル添付） / `resource`（選択範囲）
 - `fs/*` と `terminal/*` は capability を false で宣言し、未対応
+
+エージェントが終了したときは、stderr のログの末尾 3 行をパネルに表示する。`session/new` が認証エラー（-32000）を返したときは、エージェント側の CLI でログインするよう案内する。
 
 ## ハマりどころ
 
