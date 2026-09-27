@@ -993,24 +993,77 @@
               (cond
                 [(and (> level 0) (< level 7))
                  (list (seg (trim (substring trimmed level (string-length trimmed))) 'heading))]
+                [(numbered-item trimmed)
+                 => (lambda (n)
+                      (cons (seg (string-append (make-string (- (string-length line) (string-length (trim-start line))) #\space)
+                                                (substring trimmed 0 n))
+                                 'list-mark)
+                            (inline-segs (substring trimmed n (string-length trimmed)) 'text)))]
                 [(or (starts-with? trimmed "- ") (starts-with? trimmed "* "))
                  (cons (seg (string-append (make-string (- (string-length line) (string-length (trim-start line))) #\space)
                                            "• ")
-                            'dim)
+                            'list-mark)
                        (inline-segs (substring trimmed 2 (string-length trimmed)) 'text))]
                 [(starts-with? trimmed "> ")
                  (cons (seg "▎ " 'dim) (inline-segs (substring trimmed 2 (string-length trimmed)) 'dim))]
                 [(equal? trimmed "---") (list (seg (make-string (max 1 (min inner 24)) #\─) 'dim))]
                 [else (inline-segs line 'text)])]
-             [hang (if (and (pair? segs) (equal? (cdr (car segs)) 'dim))
+             [hang (if (and (pair? segs) (member (cdr (car segs)) '(dim list-mark)))
                        (list (seg (make-string (string-width (car (car segs))) #\space) 'dim))
                        '())])
         (wrap-segs segs inner hang))))
 
+;; "12. item" -> length of the "12. " marker
+(define (numbered-item trimmed)
+  (let loop ([i 0])
+    (cond
+      [(and (< i (string-length trimmed)) (char-digit? (string-ref trimmed i))) (loop (+ i 1))]
+      [(and (> i 0) (< (+ i 1) (string-length trimmed))
+            (equal? (string-ref trimmed i) #\.) (equal? (string-ref trimmed (+ i 1)) #\space))
+       (+ i 2)]
+      [else #f])))
+
+;; a line that starts its own block rather than continuing a paragraph
+(define (block-start? trimmed)
+  (or (equal? trimmed "")
+      (starts-with? trimmed "```")
+      (starts-with? trimmed "#")
+      (starts-with? trimmed "- ")
+      (starts-with? trimmed "* ")
+      (starts-with? trimmed "> ")
+      (starts-with? trimmed "|")
+      (equal? trimmed "---")
+      (numbered-item trimmed)))
+
+;; markdown soft breaks: join paragraph lines, with a space only between latin words
+(define (join-soft-breaks lines)
+  (let loop ([ls lines] [code? #f] [out '()])
+    (cond
+      [(null? ls) (reverse out)]
+      [else
+       (define line (car ls))
+       (define trimmed (trim line))
+       (define prev (and (pair? out) (car out)))
+       (cond
+         [(starts-with? trimmed "```") (loop (cdr ls) (not code?) (cons line out))]
+         [code? (loop (cdr ls) #t (cons line out))]
+         [(and prev
+               (not (block-start? trimmed))
+               (not (equal? (trim prev) ""))
+               (not (starts-with? (trim prev) "```"))
+               (not (starts-with? (trim prev) "#"))
+               (not (equal? (trim prev) "---"))
+               (not (ends-with? prev "  ")))
+          (define a (string-ref prev (- (string-length prev) 1)))
+          (define b (string-ref trimmed 0))
+          (loop (cdr ls) #f
+                (cons (string-append prev (if (and (word-char? a) (word-char? b)) " " "") trimmed) (cdr out)))]
+         [else (loop (cdr ls) #f (cons line out))])])))
+
 ;; markdown text -> wrapped lines; every line is prefixed by `indent`
 (define (markdown-lines text width indent)
   (define inner (- width (segs-width indent)))
-  (let loop ([ls (split-many (string-replace text "\t" "  ") "\n")] [code? #f] [out '()])
+  (let loop ([ls (join-soft-breaks (split-many (string-replace text "\t" "  ") "\n"))] [code? #f] [out '()])
     (cond
       [(null? ls) (reverse out)]
       [(starts-with? (trim (car ls)) "```") (loop (cdr ls) (not code?) out)]
@@ -1197,6 +1250,7 @@
     [(equal? sym 'dim) (style-with-dim (theme-scope-ref "ui.text"))]
     [(equal? sym 'bold) (style-with-bold (theme-scope-ref "ui.text"))]
     [(equal? sym 'italic) (style-with-italics (theme-scope-ref "ui.text"))]
+    [(equal? sym 'list-mark) (theme-scope-ref "markup.list")]
     [(equal? sym 'link) (theme-scope-ref "markup.link.text")]
     [(equal? sym 'code) (theme-scope-ref "markup.raw")]
     [(equal? sym 'heading) (style-with-bold (theme-scope-ref "markup.heading"))]
