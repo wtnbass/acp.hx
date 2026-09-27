@@ -4,5 +4,4 @@
 
 (let ([agent (maybe-get-env-var "ACP_HX_AGENT")])
   (when (Ok? agent)
-    (acp-configure! #:agents (list (cons "Fake" (Ok->value agent))
-                                   (cons "Claude Code" "npx -y @agentclientprotocol/claude-agent-acp")))))
+    (acp-configure! #:command (Ok->value agent))))

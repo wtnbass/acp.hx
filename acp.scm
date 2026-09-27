@@ -40,7 +40,6 @@
          acp-yank
          acp-insert-code
          acp-narrower
-         acp-switch-agent
          acp-configure!)
 
 ;;; ===========================================================================
@@ -51,8 +50,6 @@
 (define *acp-log* "/tmp/acp-hx.log")
 (define *acp-follow?* #t)
 (define *acp-mcp-servers* '()) ; passed to session/new and session/load
-(define *acp-agents*
-  (list (cons "Claude Code" "npx -y @agentclientprotocol/claude-agent-acp")))
 
 ;;@doc
 ;; Configure acp.hx.
@@ -61,16 +58,11 @@
 ;; * #:width   - sidebar width in columns
 ;; * #:log     - file that receives the agent's stderr
 ;; * #:follow  - 'on / 'off, whether the editor follows the files the agent touches
-;; * #:agents  - list of (name . command) offered by :acp-switch-agent; the first
-;;               one becomes the default unless #:command is given
 ;; * #:mcp-servers - list of ACP McpServer hashes handed to every session, e.g.
 ;;               (hash "name" "fs" "command" "mcp-fs" "args" '() "env" '())
 (define (acp-configure! #:command [command #f] #:width [width #f] #:log [log #f] #:follow [follow #f]
-                        #:agents [agents #f] #:mcp-servers [mcp-servers #f])
+                        #:mcp-servers [mcp-servers #f])
   (when (list? mcp-servers) (set! *acp-mcp-servers* mcp-servers))
-  (when (pair? agents)
-    (set! *acp-agents* agents)
-    (set! *acp-command* (cdr (car agents))))
   (when command (set! *acp-command* command))
   (when width (set! *acp-width* width))
   (when log (set! *acp-log* log))
@@ -402,30 +394,8 @@
 
 (define (acp-apply-session-result! result)
   (define options (get result 'configOptions))
-  (set! *acp-config-options*
-        (if (list? options) options (acp-legacy-options result)))
+  (when (list? options) (set! *acp-config-options* options))
   (set! *acp-status* 'ready))
-
-;; agents without configOptions describe modes / models the older way; present
-;; them as options so the header and pickers work the same
-(define (acp-legacy-options result)
-  (define modes (get result 'modes))
-  (define models (get result 'models))
-  (append
-   (if (hash? modes)
-       (list (hash 'id "__mode" 'name "Mode" 'category "mode"
-                   'currentValue (get modes 'currentModeId)
-                   'options (map (lambda (m) (hash 'value (get m 'id) 'name (or (get m 'name) (get m 'id))
-                                                   'description (or (get m 'description) "")))
-                                 (or (get modes 'availableModes) '()))))
-       '())
-   (if (hash? models)
-       (list (hash 'id "__model" 'name "Model" 'category "model"
-                   'currentValue (get models 'currentModelId)
-                   'options (map (lambda (m) (hash 'value (get m 'modelId) 'name (or (get m 'name) (get m 'modelId))
-                                                   'description (or (get m 'description) "")))
-                                 (or (get models 'availableModels) '()))))
-       '())))
 
 ;;@doc
 ;; Start a fresh conversation.
@@ -574,17 +544,11 @@
 (define (acp-set-option! id value)
   (when *acp-session-id*
     (acp-replace-option-value! id value)
-    (cond
-      [(equal? id "__mode")
-       (acp-request! "session/set_mode" (hash "sessionId" *acp-session-id* "modeId" value) (lambda (_) void))]
-      [(equal? id "__model")
-       (acp-request! "session/set_model" (hash "sessionId" *acp-session-id* "modelId" value) (lambda (_) void))]
-      [else
-       (acp-request! "session/set_config_option"
-                     (hash "sessionId" *acp-session-id* "configId" id "value" value)
-                     (lambda (result)
-                       (define options (get result 'configOptions))
-                       (when (list? options) (set! *acp-config-options* options))))])))
+    (acp-request! "session/set_config_option"
+                  (hash "sessionId" *acp-session-id* "configId" id "value" value)
+                  (lambda (result)
+                    (define options (get result 'configOptions))
+                    (when (list? options) (set! *acp-config-options* options))))))
 
 (define (acp-pick-option! option)
   (when option
@@ -2181,15 +2145,6 @@
   (acp-open))
 
 ;;@doc
-;; Pick one of the configured agents and restart with it.
-(define (acp-switch-agent)
-  (acp-pick! "Agent"
-             (map (lambda (a) (list (car a) (cdr a) (cdr a) (equal? (cdr a) *acp-command*))) *acp-agents*)
-             (lambda (command)
-               (set! *acp-command* command)
-               (acp-restart))))
-
-;;@doc
 ;; Toggle showing tool output, diffs and thinking in full.
 (define (acp-expand-toggle)
   (set! *acp-expand?* (not *acp-expand?*))
@@ -2273,7 +2228,6 @@
           (list "Insert last code block" "" acp-insert-code)
           (list "Expand all output" "^t" acp-expand-toggle)
           (list "Toggle follow-along" "^f" acp-follow-toggle)
-          (list "Switch agent" "" acp-switch-agent)
           (list "Restart agent" "" acp-restart)
           (list "Wider panel" "" acp-wider)
           (list "Narrower panel" "" acp-narrower)

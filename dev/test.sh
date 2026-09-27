@@ -89,24 +89,9 @@ keys ":acp-focus" Enter; sleep 0.3
 type_ "crash"; keys Enter
 expect "fake agent: simulated crash" "agent exit shows the log tail"
 
-keys ":acp-switch-agent" Enter; sleep 0.5
-expect "Claude Code" "agent picker lists agents"
-keys Enter; sleep 1.5
-expect "Fake Agent" "switching restarts the agent"
-
 keys Escape; sleep 0.3
 keys ":acp-close" Enter; sleep 0.5
 if screen | grep -qF "Fake Agent"; then echo "FAIL close hides the panel"; fail=1; else echo "ok   close hides the panel"; fi
-
-# an agent that only knows the older modes / models fields
-tmux kill-session -t $S
-tmux new-session -d -s $S -x 200 -y 50 \
-  "cd $PWD && FAKE_LEGACY=1 ACP_HX_AGENT='node $PWD/dev/fake-agent.mjs' HELIX_STEEL_CONFIG=$PWD/dev hx 2>>/tmp/acp-hx-test-stderr.log"
-sleep 3
-keys ":acp-open" Enter
-expect "⏵⏵ Ask  ◆ Legacy One" "legacy modes and models in the header"
-keys BTab
-expect "got session/set_mode code" "legacy mode switch uses session/set_mode"
 
 if [ -s /tmp/acp-hx-test-stderr.log ]; then echo "FAIL stderr output:"; cat /tmp/acp-hx-test-stderr.log; fail=1; fi
 tmux kill-session -t $S

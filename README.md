@@ -1,7 +1,8 @@
 # acp.hx
 
-helix (steel plugin) から [ACP (Agent Client Protocol)](https://agentclientprotocol.com) のエージェントを起動し、右サイドバーで対話するプラグイン。
-デフォルトのエージェントは `npx -y @agentclientprotocol/claude-agent-acp`（Claude Code）。
+helix (steel plugin) の右サイドバーで Claude Code と対話するプラグイン。
+[ACP (Agent Client Protocol)](https://agentclientprotocol.com) のアダプタ `@agentclientprotocol/claude-agent-acp` を子プロセスとして起動し、JSON-RPC で話す。
+Claude Code 専用で、ほかの ACP エージェントでの動作は確認していない。
 
 ```
 │ ✻ Claude Agent  Rust 入門 Markdown 作成
@@ -43,10 +44,7 @@ ln -s ~/ghq/github.com/wtnbass/acp.hx ~/.local/share/steel/cogs/acp
 
 ```scheme
 (require "acp/acp.scm")
-(acp-configure! #:width 64
-                ;; :acp-switch-agent で切り替えられるエージェント。先頭が既定
-                #:agents (list (cons "Claude Code" "npx -y @agentclientprotocol/claude-agent-acp")
-                               (cons "Gemini" "gemini --experimental-acp")))
+(acp-configure! #:width 64)
 ```
 
 `config.toml` のキー割り当て例:
@@ -109,10 +107,9 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | `:acp-retry` | 直前のプロンプトを送り直す |
 | `:acp-follow-toggle` / `:acp-expand-toggle` | follow-along / 全文表示の切り替え |
 | `:acp-wider` / `:acp-narrower` | パネル幅の変更 |
-| `:acp-switch-agent` | `#:agents` に登録したエージェントを選んで再起動 |
 | `:acp-restart` / `:acp-quit` | エージェントの再起動 / 停止 |
 
-`acp-configure!` のオプション: `#:agents`（`(名前 . コマンド)` のリスト）、`#:command`（エージェントの起動コマンド）、`#:width`、`#:log`（エージェントの stderr の出力先、既定は `/tmp/acp-hx.log`）、`#:follow`（`'on` / `'off`）、`#:mcp-servers`（各セッションに渡す ACP の McpServer のリスト）。
+`acp-configure!` のオプション: `#:command`（`claude-agent-acp` の起動コマンド。グローバルにインストールした場合などに変える）、`#:width`、`#:log`（エージェントの stderr の出力先、既定は `/tmp/acp-hx.log`）、`#:follow`（`'on` / `'off`）、`#:mcp-servers`（各セッションに渡す ACP の McpServer のリスト）。
 
 ## 表示している情報
 
@@ -136,7 +133,7 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | エージェントの作業位置の追従（follow-along） | ✓ |
 | 編集のまとめ表示・直近の編集の取り消し | ✓（`:acp-review` / `:acp-undo-edit`） |
 | 中断・プロンプトのキューイング・再送 | ✓ |
-| 複数エージェントの切り替え・MCP サーバーの指定 | ✓ |
+| MCP サーバーの指定 | ✓ |
 | 過去メッセージの編集・チェックポイントへの巻き戻し | ✗（ACP に該当する仕組みがない） |
 | エディタ内でのハンク単位の accept / reject | ✗（`:acp-review` の diff 表示と `:acp-undo-edit` で代替） |
 | Bash 出力の逐次表示 | ✗（アダプタが完了時にまとめて送るため） |
@@ -160,7 +157,6 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 
 - `initialize` / `session/new` / `session/load` / `session/list` / `session/prompt` / `session/cancel` / `session/set_config_option`
 - `session/update`: `agent_message_chunk` / `agent_thought_chunk` / `user_message_chunk` / `tool_call` / `tool_call_update` / `plan` / `config_option_update` / `current_mode_update` / `available_commands_update` / `usage_update` / `session_info_update`
-- `session/set_mode` / `session/set_model`（`configOptions` を返さず `modes` / `models` だけを返すエージェント向け）
 - `session/request_permission`
 - プロンプトの content: `text` / `resource_link`（`@` とファイル添付） / `resource`（選択範囲） / `image`
 - `fs/*` と `terminal/*` は capability を false で宣言し、未対応
