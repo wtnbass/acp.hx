@@ -99,6 +99,7 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | `:acp-add-file` / `:acp-add-selection` | 現在のファイル / 選択範囲を次のプロンプトに添付 |
 | `:acp-add-image <path>` | 画像（png / jpg / gif / webp）を次のプロンプトに添付 |
 | `:acp-diff` | 保留中の permission の diff / 計画、または直近の編集の diff を開く |
+| `:acp-review` | このセッションでエージェントが行った編集をまとめて 1 つの diff で開く |
 | `:acp-yank` | 直近の返答をクリップボードにコピー |
 | `:acp-insert-code` | 直近の返答の最後のコードブロックを選択範囲の後ろに貼り付け |
 | `:acp-cancel` | 実行中のターンを中断 |

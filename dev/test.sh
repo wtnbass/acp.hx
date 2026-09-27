@@ -59,6 +59,12 @@ click $((row + 1))
 if tmux capture-pane -t $S -p | grep -q "NOR   README.md"; then echo "ok   clicking a tool call opens its file"; else echo "FAIL clicking a tool call opens its file"; fail=1; fi
 keys ":acp-focus" Enter; sleep 0.3
 
+keys Escape; sleep 0.3
+keys ":acp-review" Enter; sleep 0.8
+expect '+    println!("hello");' "review opens the session's edits"
+keys ":bc" Enter; sleep 0.3
+keys ":acp-focus" Enter; sleep 0.3
+
 keys C-o; sleep 0.5; type_ "model"; keys Enter; sleep 0.3; keys Down Enter; sleep 0.8
 expect "◆ Fake Turbo" "model picker"
 

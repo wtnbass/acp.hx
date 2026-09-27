@@ -32,6 +32,7 @@
          acp-follow-toggle
          acp-expand-toggle
          acp-diff
+         acp-review
          acp-wider
          acp-yank
          acp-insert-code
@@ -838,6 +839,28 @@
      (if e
          (begin (acp-unfocus!) (acp-open-diff! (or (entry-get e 'title) "edit") (entry-get e 'content)))
          (set-status! "acp: no edits yet"))]))
+
+;;@doc
+;; Open every edit the agent made in this session as one diff, oldest first.
+(define (acp-review)
+  (define edits
+    (filter (lambda (e) (and (equal? (Entry-kind e) 'tool)
+                             (equal? (entry-get e 'status) "completed")
+                             (pair? (diff-blocks (entry-get e 'content)))))
+            (reverse *acp-entries*)))
+  (if (null? edits)
+      (set-status! "acp: no edits in this session")
+      (begin
+        (acp-unfocus!)
+        (helix.open
+         (acp-write-tmp! "review.diff"
+                         (string-append
+                          (string-join (map (lambda (e)
+                                              (string-append "# " (or (entry-get e 'title) "edit") "\n"
+                                                             (string-join (map diff-block-text (diff-blocks (entry-get e 'content))) "\n")))
+                                            edits)
+                                       "\n")
+                          "\n"))))))
 
 ;;; ===========================================================================
 ;;; context attachments
