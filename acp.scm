@@ -1177,6 +1177,10 @@
           (loop (cdr es) (append ls acc) (+ n (length ls)))))))
 
 (define *acp-row-entries* '()) ; (y . entry) of the rows drawn last frame
+(define *acp-last-total* #f)
+
+(define (transcript-length width)
+  (foldl (lambda (e acc) (+ acc 1 (length (entry-lines e width)))) 0 *acp-entries*))
 
 ;;; ===========================================================================
 ;;; rendering
@@ -1258,9 +1262,13 @@
   (define ratio (if (and (number? used) (number? size) (> size 0)) (/ used size) #f))
   (append
    (if ratio
-       (list (seg (string-append "ctx " (format-tokens used) "/" (format-tokens size) " " (format-percent ratio))
-                  (cond [(> ratio 0.8) 'error] [(> ratio 0.5) 'warning] [else 'dim]))
-             (seg "  " 'dim))
+       (let ([style (cond [(> ratio 0.8) 'error] [(> ratio 0.5) 'warning] [else 'dim])]
+             [filled (min 6 (->int (ceiling (* 6 ratio))))])
+         (list (seg "ctx " 'dim)
+               (seg (make-string filled #\▰) style)
+               (seg (make-string (- 6 filled) #\▱) 'dim)
+               (seg (string-append " " (format-tokens used) "/" (format-tokens size) " " (format-percent ratio)) style)
+               (seg "  " 'dim)))
        '())
    (if (number? cost) (list (seg (format-cost cost) 'dim) (seg "  " 'dim)) '())
    (if (number? five) (list (seg (string-append "5h " (format-percent five)) (if (> five 0.8) 'warning 'dim))
@@ -1488,7 +1496,13 @@
           (draw-segs frame cx (- comp-top 1) rule cw #f)
           (- comp-top 1))))
 
-  ;; transcript
+  ;; transcript; while scrolled up, keep the view anchored as new lines arrive
+  (if (> *acp-scroll* 0)
+      (let ([total (transcript-length cw)])
+        (when (and *acp-last-total* (> total *acp-last-total*))
+          (set! *acp-scroll* (+ *acp-scroll* (- total *acp-last-total*))))
+        (set! *acp-last-total* total))
+      (set! *acp-last-total* #f))
   (define busy-row (if (acp-busy?) 1 0))
   (define body-h (max 0 (- footer-top body-top busy-row)))
   (define lines (transcript-tail cw (+ body-h *acp-scroll* 1)))

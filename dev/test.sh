@@ -41,7 +41,7 @@ expect "+1 -1" "diff stat"
 keys 1; sleep 1.5
 expect "error[E0425]" "failed tool output"
 expect "• first point" "markdown bullets"
-expect "ctx 51k/200k 26%  \$0.43" "usage line"
+expect '51k/200k 26%  $0.43' "usage line"
 expect "Fake session (all)" "session title"
 
 keys C-f; sleep 0.3
