@@ -30,6 +30,7 @@
          acp-add-selection
          acp-follow-toggle
          acp-expand-toggle
+         acp-diff
          acp-configure!)
 
 ;;; ===========================================================================
@@ -183,6 +184,7 @@
 (define *acp-history-pos* -1)
 (define *acp-attachments* '()) ; list of hash: label + content block
 (define *acp-completion-index* 0)
+(define *acp-files* '()) ; workspace files for @ completion
 
 (define *acp-permission* #f) ; hash: id title content options index
 
@@ -322,10 +324,27 @@
           (set! *acp-proc* proc)
           (set! *acp-stdin* (child-stdin proc))
           (spawn-native-thread (lambda () (acp-reader-loop stdout)))
+          (acp-load-files! cwd)
           (acp-initialize!))
         (begin
           (set! *acp-status* 'stopped)
           (acp-error! (to-string "spawn failed: " (Err->value result)))))))
+
+;; list workspace files off the main thread, via git so ignored files stay out
+(define (acp-load-files! cwd)
+  (spawn-native-thread
+   (lambda ()
+     (define files
+       (with-handler
+        (lambda (_) '())
+        (let ([r (~> (command "git" (list "-C" cwd "ls-files" "--cached" "--others" "--exclude-standard"))
+                     (with-stdout-piped)
+                     (spawn-process))])
+          (if (Ok? r)
+              (filter (lambda (l) (not (equal? l "")))
+                      (split-many (read-port-to-string (child-stdout (Ok->value r))) "\n"))
+              '()))))
+     (hx.with-context (lambda () (set! *acp-files* files))))))
 
 (define (acp-initialize!)
   (acp-request!
@@ -415,6 +434,7 @@
      (acp-request! "session/prompt"
                    (hash "sessionId" *acp-session-id*
                          "prompt" (append (map (lambda (a) (get a 'block)) attachments)
+                                          (mention-blocks text)
                                           (list (hash "type" "text" "text" text))))
                    (lambda (result)
                      (acp-turn-finished!)
@@ -679,6 +699,71 @@
   (set-status! (if *acp-follow?* "acp: follow on" "acp: follow off")))
 
 ;;; ===========================================================================
+;;; diff review
+
+;; unified-style text for the diff blocks of a tool call
+(define (text-lines t)
+  (define ls (if (string? t) (split-many t "\n") '()))
+  (if (and (pair? ls) (equal? (last ls) "")) (reverse (cdr (reverse ls))) ls))
+
+(define (diff-block-text c)
+  (define old (text-lines (get c 'oldText)))
+  (define new (text-lines (get c 'newText)))
+  (define prefix
+    (let loop ([a old] [b new] [n 0])
+      (if (and (pair? a) (pair? b) (equal? (car a) (car b))) (loop (cdr a) (cdr b) (+ n 1)) n)))
+  (define old* (list-tail old prefix))
+  (define new* (list-tail new prefix))
+  (define suffix
+    (let loop ([a (reverse old*)] [b (reverse new*)] [n 0])
+      (if (and (pair? a) (pair? b) (equal? (car a) (car b))) (loop (cdr a) (cdr b) (+ n 1)) n)))
+  (define rel (relative-path (or (get c 'path) "")))
+  (string-join
+   (append (list (string-append "--- a/" rel) (string-append "+++ b/" rel)
+                 (string-append "@@ -1," (number->string (length old)) " +1," (number->string (length new)) " @@"))
+           (map (lambda (l) (string-append " " l)) (take-at-most old prefix))
+           (map (lambda (l) (string-append "-" l)) (take-at-most old* (- (length old*) suffix)))
+           (map (lambda (l) (string-append "+" l)) (take-at-most new* (- (length new*) suffix)))
+           (map (lambda (l) (string-append " " l)) (take-last old* suffix)))
+   "\n"))
+
+(define (diff-blocks content)
+  (filter (lambda (c) (equal? (get c 'type) "diff")) (or content '())))
+
+(define *acp-diff-count* 0)
+
+;; diffs open as real files: a scratch buffer filled via insert_string panics
+;; helix when it is closed
+(define (acp-open-diff! title content)
+  (define blocks (diff-blocks content))
+  (if (null? blocks)
+      (set-status! "acp: no diff to show")
+      (let* ([dir "/tmp/acp-hx"]
+             [_ (with-handler (lambda (_) void) (create-directory! dir))]
+             [name (last (split-many (or (get (car blocks) 'path) "edit") "/"))]
+             [path (begin (set! *acp-diff-count* (+ *acp-diff-count* 1))
+                          (string-append dir "/" (number->string *acp-diff-count*) "-" name ".diff"))]
+             [port (open-output-file path #:exists 'truncate)])
+        (write-string (string-append (string-join (map diff-block-text blocks) "\n") "\n") port)
+        (close-output-port port)
+        (helix.open path))))
+
+;;@doc
+;; Show the pending permission's diff, or the latest edit, in a scratch buffer.
+(define (acp-diff)
+  (cond
+    [*acp-permission*
+     (acp-unfocus!)
+     (acp-open-diff! (get *acp-permission* 'title) (get *acp-permission* 'content))]
+    [else
+     (define e (find-first (lambda (e) (and (equal? (Entry-kind e) 'tool)
+                                            (pair? (diff-blocks (entry-get e 'content)))))
+                           *acp-entries*))
+     (if e
+         (begin (acp-unfocus!) (acp-open-diff! (or (entry-get e 'title) "edit") (entry-get e 'content)))
+         (set-status! "acp: no edits yet"))]))
+
+;;; ===========================================================================
 ;;; context attachments
 
 (define (acp-attach! label block)
@@ -797,40 +882,52 @@
     (if (and (< i (string-length line)) (equal? (string-ref line i) #\#)) (loop (+ i 1)) i)))
 
 ;; markdown text -> wrapped lines; every line is prefixed by `indent`
+;; wrapped markdown lines memoized by (kind, width, raw line): while a message
+;; streams only its last line changes, so everything above it is reused
+(define *acp-md-memo* (hash))
+
+(define (markdown-line line code? inner)
+  (define key (string-append (if code? "C" "T") (number->string inner) "|" line))
+  (define hit (hash-try-get *acp-md-memo* key))
+  (or hit
+      (let ([wrapped (markdown-line-uncached line code? inner)])
+        (when (> (hash-length *acp-md-memo*) 4000) (set! *acp-md-memo* (hash)))
+        (set! *acp-md-memo* (hash-insert *acp-md-memo* key wrapped))
+        wrapped)))
+
+(define (markdown-line-uncached line code? inner)
+  (define trimmed (trim line))
+  (if code?
+      (wrap-segs (list (seg "│ " 'dim) (seg line 'code)) inner (list (seg "│ " 'dim)))
+      (let* ([level (heading-level trimmed)]
+             [segs
+              (cond
+                [(and (> level 0) (< level 7))
+                 (list (seg (trim (substring trimmed level (string-length trimmed))) 'heading))]
+                [(or (starts-with? trimmed "- ") (starts-with? trimmed "* "))
+                 (cons (seg (string-append (make-string (- (string-length line) (string-length (trim-start line))) #\space)
+                                           "• ")
+                            'dim)
+                       (inline-segs (substring trimmed 2 (string-length trimmed)) 'text))]
+                [(starts-with? trimmed "> ")
+                 (cons (seg "▎ " 'dim) (inline-segs (substring trimmed 2 (string-length trimmed)) 'dim))]
+                [(equal? trimmed "---") (list (seg (make-string (max 1 (min inner 24)) #\─) 'dim))]
+                [else (inline-segs line 'text)])]
+             [hang (if (and (pair? segs) (equal? (cdr (car segs)) 'dim))
+                       (list (seg (make-string (string-width (car (car segs))) #\space) 'dim))
+                       '())])
+        (wrap-segs segs inner hang))))
+
+;; markdown text -> wrapped lines; every line is prefixed by `indent`
 (define (markdown-lines text width indent)
   (define inner (- width (segs-width indent)))
-  (set! text (string-replace text "\t" "  "))
-  (let loop ([ls (split-many text "\n")] [code? #f] [out '()])
+  (let loop ([ls (split-many (string-replace text "\t" "  ") "\n")] [code? #f] [out '()])
     (cond
       [(null? ls) (reverse out)]
+      [(starts-with? (trim (car ls)) "```") (loop (cdr ls) (not code?) out)]
       [else
-       (define line (car ls))
-       (define trimmed (trim line))
-       (cond
-         [(starts-with? trimmed "```")
-          (loop (cdr ls) (not code?) out)]
-         [code?
-          (define wrapped (wrap-segs (list (seg "│ " 'dim) (seg line 'code)) inner (list (seg "│ " 'dim))))
-          (loop (cdr ls) #t (append (reverse (map (lambda (l) (append indent l)) wrapped)) out))]
-         [else
-          (define level (heading-level trimmed))
-          (define segs
-            (cond
-              [(and (> level 0) (< level 7))
-               (list (seg (trim (substring trimmed level (string-length trimmed))) 'heading))]
-              [(or (starts-with? trimmed "- ") (starts-with? trimmed "* "))
-               (define lead (make-string (- (string-length line) (string-length (trim-start line))) #\space))
-               (cons (seg (string-append lead "• ") 'dim)
-                     (inline-segs (substring trimmed 2 (string-length trimmed)) 'text))]
-              [(starts-with? trimmed "> ")
-               (cons (seg "▎ " 'dim) (inline-segs (substring trimmed 2 (string-length trimmed)) 'dim))]
-              [(equal? trimmed "---") (list (seg (make-string (max 1 (min inner 24)) #\─) 'dim))]
-              [else (inline-segs line 'text)]))
-          (define hang (if (and (pair? segs) (equal? (cdr (car segs)) 'dim))
-                           (list (seg (make-string (string-width (car (car segs))) #\space) 'dim))
-                           '()))
-          (define wrapped (wrap-segs segs inner hang))
-          (loop (cdr ls) #f (append (reverse (map (lambda (l) (append indent l)) wrapped)) out))])])))
+       (define wrapped (markdown-line (car ls) code? inner))
+       (loop (cdr ls) code? (append (reverse (map (lambda (l) (append indent l)) wrapped)) out))])))
 
 (define (plain-lines text width indent style)
   (define inner (- width (segs-width indent)))
@@ -1097,14 +1194,73 @@
 
 (define (input-string) (list->string (append (reverse *acp-before*) *acp-after*)))
 
+;; the whitespace-delimited word right before the cursor
+(define (current-token)
+  (let loop ([b *acp-before*] [acc '()])
+    (if (or (null? b) (char-whitespace? (car b)))
+        (list->string acc)
+        (loop (cdr b) (cons (car b) acc)))))
+
+(define (replace-current-token! text)
+  (define n (string-length (current-token)))
+  (set! *acp-before* (list-tail *acp-before* n))
+  (input-insert! text))
+
+;; files ranked: basename prefix, then path prefix, then substring
+(define (file-matches q)
+  (define ql (string-downcase q))
+  (define (score f)
+    (define fl (string-downcase f))
+    (define base (last (split-many fl "/")))
+    (cond [(starts-with? base ql) 0]
+          [(starts-with? fl ql) 1]
+          [(string-contains? fl ql) 2]
+          [else #f]))
+  (let loop ([fs *acp-files*] [a '()] [b '()] [c '()] [n 0])
+    (cond
+      [(or (null? fs) (>= n 200)) (take-at-most (append (reverse a) (reverse b) (reverse c)) 6)]
+      [else
+       (define sc (score (car fs)))
+       (cond [(equal? sc 0) (loop (cdr fs) (cons (car fs) a) b c (+ n 1))]
+             [(equal? sc 1) (loop (cdr fs) a (cons (car fs) b) c (+ n 1))]
+             [(equal? sc 2) (loop (cdr fs) a b (cons (car fs) c) (+ n 1))]
+             [else (loop (cdr fs) a b c n)])])))
+
+;; list of hash: label detail apply submit?
 (define (completion-items)
   (define s (input-string))
-  (if (and (starts-with? s "/") (not (string-contains? s " ")) (not (string-contains? s "\n")))
-      (let ([q (string-downcase (substring s 1 (string-length s)))])
-        (take-at-most (filter (lambda (c) (string-contains? (string-downcase (or (get c 'name) "")) q))
-                              *acp-commands*)
-                      6))
-      '()))
+  (define token (current-token))
+  (cond
+    [(and (starts-with? s "/") (not (string-contains? s " ")) (not (string-contains? s "\n")))
+     (define q (string-downcase (substring s 1 (string-length s))))
+     (map (lambda (c)
+            (hash 'label (string-append "/" (get c 'name))
+                  'detail (or (get c 'description) "")
+                  'apply (lambda () (input-set! (string-append "/" (get c 'name) " ")))
+                  'submit? #t))
+          (take-at-most (filter (lambda (c) (string-contains? (string-downcase (or (get c 'name) "")) q))
+                                *acp-commands*)
+                        6))]
+    [(and (starts-with? token "@") (null? (filter (lambda (c) (not (char-whitespace? c))) (take-at-most *acp-after* 1))))
+     (map (lambda (f)
+            (hash 'label (string-append "@" f)
+                  'detail ""
+                  'apply (lambda () (replace-current-token! (string-append "@" f " ")))
+                  'submit? #f))
+          (file-matches (substring token 1 (string-length token))))]
+    [else '()]))
+
+;; resource links for every @path in the prompt that names a workspace file
+(define (mention-blocks text)
+  (define words (split-many (string-replace text "\n" " ") " "))
+  (define paths
+    (filter (lambda (w) (and (> (string-length w) 1) (starts-with? w "@")
+                             (member (substring w 1 (string-length w)) *acp-files*)))
+            words))
+  (map (lambda (w)
+         (define rel (substring w 1 (string-length w)))
+         (hash "type" "resource_link" "uri" (string-append "file://" *acp-cwd* "/" rel) "name" rel))
+       paths))
 
 (define (permission-lines width)
   (define p *acp-permission*)
@@ -1118,7 +1274,7 @@
                 (seg (string-append (number->string (+ i 1)) ". " (or (get o 'name) "?"))
                      (if selected? 'accent 'text))))
         opts (indices (length opts)))
-   (list (list (seg "   ↑↓ select · enter confirm · esc reject" 'dim)))))
+   (list (list (seg "   ↑↓ select · enter confirm · d full diff · esc reject" 'dim)))))
 
 (define (hint-segs)
   (list (seg "⏎ send · ⇧⇥ mode · ^o settings · ^r sessions · ^n new · esc editor" 'dim)))
@@ -1202,15 +1358,15 @@
                                         *acp-attachments*))
                              cw #f)
                   attach-y)))
-          ;; slash command completion
+          ;; slash command / @file completion
           (define items (completion-items))
           (define comp-top (- top (length items)))
           (let loop ([is items] [i 0] [y comp-top])
             (when (pair? is)
               (define selected? (= i (min *acp-completion-index* (- (length items) 1))))
               (draw-segs frame cx y
-                         (list (seg (string-append "/" (get (car is) 'name)) (if selected? 'accent 'text))
-                               (seg (string-append "  " (or (get (car is) 'description) "")) 'dim))
+                         (list (seg (get (car is) 'label) (if selected? 'accent 'text))
+                               (seg (if (equal? (get (car is) 'detail) "") "" (string-append "  " (get (car is) 'detail))) 'dim))
                          cw (if selected? (style->bg (style-of 'selected)) #f))
               (loop (cdr is) (+ i 1) (+ y 1))))
           (draw-segs frame cx (- comp-top 1) rule cw #f)
@@ -1366,11 +1522,13 @@
     (input-set! "")
     (acp-send-prompt! text)))
 
-(define (acp-complete!)
+(define (selected-completion)
   (define items (completion-items))
-  (when (pair? items)
-    (define item (list-ref items (min *acp-completion-index* (- (length items) 1))))
-    (input-set! (string-append "/" (get item 'name) " "))))
+  (and (pair? items) (list-ref items (min *acp-completion-index* (- (length items) 1)))))
+
+(define (acp-complete!)
+  (define item (selected-completion))
+  (when item ((get item 'apply))))
 
 (define (acp-handle-permission-key event)
   (define ch (key-event-char event))
@@ -1389,6 +1547,7 @@
      (when (and (>= i 0) (< i (length opts)))
        (acp-answer-permission! (list-ref opts i)))]
     [(and (ctrl? event) (equal? ch #\c)) (acp-cancel)]
+    [(equal? ch #\d) (acp-diff)]
     [else void])
   event-result/consume)
 
@@ -1423,9 +1582,12 @@
     [(key-event-tab? event) (acp-complete!) event-result/consume]
     [(and (key-event-enter? event) (alt? event)) (input-insert! "\n") event-result/consume]
     [(key-event-enter? event)
-     (if (and completing? (not (string-contains? (input-string) " ")))
-         (begin (acp-complete!) (acp-submit!))
-         (acp-submit!))
+     (define item (and completing? (selected-completion)))
+     (cond
+       [(not item) (acp-submit!)]
+       ;; a slash command runs right away, a file mention keeps editing
+       [(get item 'submit?) ((get item 'apply)) (acp-submit!)]
+       [else ((get item 'apply))])
      event-result/consume]
     [(ctrl? event)
      (cond
