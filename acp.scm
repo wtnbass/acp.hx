@@ -1161,11 +1161,24 @@
   (define total (+ (foldl + 0 widths) (* 3 (max 0 (- cols 1)))))
   (define (pad segs w) (append segs (list (seg (make-string (max 0 (- w (segs-width segs))) #\space) 'text))))
   (if (> total inner)
-      (apply append
-             (map (lambda (r) (wrap-segs (apply append (map (lambda (c i) (if (= i 0) c (cons (seg " │ " 'dim) c)))
-                                                           r (indices (length r))))
-                                        inner (list (seg "  " 'dim))))
-                  cell-segs))
+      ;; too wide: one card per row, the first cell as its title and the rest as
+      ;; "header: value" lines
+      (let ([header (if (pair? cell-segs) (car cell-segs) '())])
+        (apply append
+               (map (lambda (r)
+                      (append
+                       (wrap-segs (cons (seg "▸ " 'list-mark) (if (pair? r) (car r) '())) inner (list (seg "  " 'dim)))
+                       (apply append
+                              (map (lambda (c k)
+                                     (define name (if (< (+ k 1) (length header)) (list-ref header (+ k 1)) '()))
+                                     (wrap-segs (append (list (seg "  " 'dim))
+                                                        (map (lambda (sg) (seg (car sg) 'dim)) name)
+                                                        (list (seg ": " 'dim))
+                                                        c)
+                                                inner (list (seg "    " 'dim))))
+                                   (if (pair? r) (cdr r) '())
+                                   (indices (max 0 (- (length r) 1)))))))
+                    (if (pair? cell-segs) (cdr cell-segs) '()))))
       (apply append
              (map (lambda (r i)
                     (define line
