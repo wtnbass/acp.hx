@@ -31,7 +31,8 @@ async function scenario(sid, name) {
   }
   if (name === "tools" || name === "all") {
     update(sid, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Thinking about the change.\nLine two of thought." } });
-    update(sid, { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read src/main.rs", kind: "read", status: "pending" });
+    update(sid, { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read README.md", kind: "read", status: "pending",
+      locations: [{ path: `${process.cwd()}/README.md`, line: 20 }] });
     update(sid, { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed",
       content: [{ type: "content", content: { type: "text", text: "```\nfn main() {\n    println!(\"hi\");\n}\n```" } }] });
     update(sid, { sessionUpdate: "tool_call", toolCallId: "t2", title: "Edit src/main.rs", kind: "edit", status: "pending",

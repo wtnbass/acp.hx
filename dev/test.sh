@@ -3,7 +3,7 @@
 cd "$(dirname "$0")/.."
 S=acphx-test
 fail=0
-screen() { tmux capture-pane -t $S -p | cut -c135-; }
+screen() { tmux capture-pane -t $S -p; }
 expect() {
   if screen | grep -qF -- "$1"; then echo "ok   $2"; else echo "FAIL $2 (missing: $1)"; fail=1; fi
 }
@@ -26,8 +26,10 @@ type_ "/re"; sleep 0.5
 expect "/review  Review the diff" "slash command completion"
 keys C-u
 
-type_ "all"; keys Enter; sleep 1.5
+type_ "plan"; keys Enter; sleep 1.2
 expect "☒ Run the tests" "plan checklist"
+
+type_ "all"; keys Enter; sleep 1.5
 expect "? Edit src/main.rs" "permission prompt"
 expect "+1 -1" "diff stat"
 keys 1; sleep 1.5
@@ -35,6 +37,12 @@ expect "error[E0425]" "failed tool output"
 expect "• first point" "markdown bullets"
 expect "ctx 51k/200k 26%  \$0.43" "usage line"
 expect "Fake session (all)" "session title"
+
+keys C-f; sleep 0.3
+row=$(tmux capture-pane -t $S -p | grep -n "Read README.md" | head -1 | cut -d: -f1)
+type_ "$(printf '\033[<0;150;%sM\033[<0;150;%sm' "$row" "$row")"; sleep 0.8
+if tmux capture-pane -t $S -p | grep -q "NOR   README.md"; then echo "ok   clicking a tool call opens its file"; else echo "FAIL clicking a tool call opens its file"; fail=1; fi
+keys ":acp-focus" Enter; sleep 0.3
 
 keys C-o; sleep 0.5; type_ "model"; keys Enter; sleep 0.3; keys Down Enter; sleep 0.8
 expect "◆ Fake Turbo" "model picker"

@@ -692,16 +692,27 @@
   (when (and doc (not (editor-document-dirty? doc)))
     (editor-document-reload doc)))
 
+(define (acp-open-location! loc)
+  (with-handler
+   (lambda (err) (log::warn! (to-string "acp open: " err)))
+   (acp-reload-clean-doc! loc)
+   (helix.open (car loc))
+   (when (cdr loc)
+     (helix.goto (number->string (cdr loc)))
+     (align_view_center))))
+
 (define (acp-follow! locations)
   (when (and *acp-follow?* (pair? locations))
-    (define loc (car locations))
-    (with-handler
-     (lambda (err) (log::warn! (to-string "acp follow: " err)))
-     (acp-reload-clean-doc! loc)
-     (helix.open (car loc))
-     (when (cdr loc)
-       (helix.goto (number->string (cdr loc)))
-       (align_view_center)))))
+    (acp-open-location! (car locations))))
+
+;; clicking a tool call opens the file it touched
+(define (acp-click-transcript! event)
+  (define hit (assoc (event-mouse-row event) *acp-row-entries*))
+  (define e (and hit (cdr hit)))
+  (define locs (if (and e (equal? (Entry-kind e) 'tool)) (acp-locations (unbox (Entry-data e))) '()))
+  (cond
+    [(pair? locs) (acp-open-location! (car locs)) #t]
+    [else #f]))
 
 ;;@doc
 ;; Toggle whether the editor follows the files the agent reads and edits.
@@ -1126,12 +1137,16 @@
         lines)))
 
 ;; the last `needed` transcript lines, walking entries newest first
+;; each line is paired with its entry so clicks can find what they hit
 (define (transcript-tail width needed)
   (let loop ([es *acp-entries*] [acc '()] [n 0])
     (if (or (null? es) (>= n needed))
         acc
-        (let ([ls (append (entry-lines (car es) width) (list '()))])
+        (let* ([e (car es)]
+               [ls (append (map (lambda (l) (cons e l)) (entry-lines e width)) (list (cons #f '())))])
           (loop (cdr es) (append ls acc) (+ n (length ls)))))))
+
+(define *acp-row-entries* '()) ; (y . entry) of the rows drawn last frame
 
 ;;; ===========================================================================
 ;;; rendering
@@ -1451,9 +1466,11 @@
   (when (> *acp-scroll* max-scroll) (set! *acp-scroll* max-scroll))
   (define visible
     (take-last (take-at-most lines (- (length lines) *acp-scroll*)) body-h))
+  (set! *acp-row-entries* '())
   (let loop ([ls visible] [y body-top])
     (when (pair? ls)
-      (draw-segs frame cx y (car ls) cw #f)
+      (draw-segs frame cx y (cdr (car ls)) cw #f)
+      (when (car (car ls)) (set! *acp-row-entries* (cons (cons y (car (car ls))) *acp-row-entries*)))
       (loop (cdr ls) (+ y 1))))
   (when (acp-busy?)
     (draw-segs frame cx (+ body-top (length visible)) (busy-segs) cw #f))
@@ -1643,6 +1660,9 @@
     [(mouse-event? event)
      (define dir (mouse-scroll event))
      (cond [(and dir (in-panel? event)) (acp-scroll-by! (if (equal? dir 'up) 3 -3)) event-result/consume]
+           [(and (in-panel? event) (equal? (event-mouse-kind event) 0))
+            (acp-click-transcript! event)
+            event-result/consume]
            [(in-panel? event) event-result/consume]
            ;; clicking the editor hands focus back to it
            [else (acp-unfocus!) event-result/ignore])]
@@ -1728,8 +1748,8 @@
      (acp-redraw!)
      event-result/consume]
     [(and (mouse-event? event) (in-panel? event) (equal? (event-mouse-kind event) 0))
-     ;; left click on the panel focuses it
-     (acp-focus)
+     ;; left click opens a tool call's file, anywhere else focuses the panel
+     (unless (acp-click-transcript! event) (acp-focus))
      event-result/consume]
     [else event-result/ignore]))
 
