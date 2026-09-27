@@ -68,6 +68,9 @@ keys ":acp-focus" Enter; sleep 0.3
 keys C-o; sleep 0.5; type_ "model"; keys Enter; sleep 0.3; keys Down Enter; sleep 0.8
 expect "◆ Fake Turbo" "model picker"
 
+keys C-p; sleep 0.5; type_ "wider"; keys Enter; sleep 0.5
+expect "Fake Agent" "action menu runs an action"
+
 keys BTab; sleep 0.8
 expect "⏵⏵ Plan" "shift-tab cycles mode"
 

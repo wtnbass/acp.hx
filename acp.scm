@@ -34,6 +34,7 @@
          acp-diff
          acp-review
          acp-undo-edit
+         acp-menu
          acp-wider
          acp-yank
          acp-insert-code
@@ -1630,7 +1631,7 @@
    (list (list (seg "   ↑↓ select · enter confirm · d details · esc reject" 'dim)))))
 
 (define (hint-segs)
-  (list (seg "⏎ send · ⇧⇥ mode · ^o settings · ^r sessions · ^n new · esc editor" 'dim)))
+  (list (seg "⏎ send · ^p actions · ⇧⇥ mode · ^o settings · ^r sessions · esc editor" 'dim)))
 
 (define (acp-render state rect frame)
   (define t0 (now-ms))
@@ -1802,11 +1803,14 @@
         (define selected? (= i index))
         (define bg (if selected? (style->bg (style-of 'selected)) popup-bg))
         (buffer/clear-with frame (area (+ x 1) row (- w 2) 1) (if selected? (style-of 'selected) (theme-scope-ref "ui.popup")))
+        ;; detail sits flush right, clipped so the label keeps most of the row
+        (define detail (truncate-width (to-string (cadr item)) (quotient (- w 6) 2)))
+        (define detail-w (string-width detail))
         (draw-segs frame (+ x 2) row
                    (list (seg (if (list-ref item 3) "● " "  ") 'accent)
-                         (seg (to-string (car item)) (if selected? 'bold 'text))
-                         (seg (if (equal? (cadr item) "") "" (string-append "  " (cadr item))) 'dim))
-                   (- w 4) bg)
+                         (seg (to-string (car item)) (if selected? 'bold 'text)))
+                   (- w 5 detail-w) bg)
+        (draw-segs frame (- (+ x w) 2 detail-w) row (list (seg detail 'dim)) detail-w bg)
         (loop (cdr is) (+ i 1) (+ row 1))))))
 
 (define (acp-close-picker!)
@@ -1964,6 +1968,7 @@
        [(equal? ch #\c) (if (acp-busy?) (acp-cancel) (input-set! ""))]
        [(equal? ch #\j) (input-insert! "\n")]
        [(equal? ch #\o) (acp-settings)]
+       [(equal? ch #\p) (acp-menu)]
        [(equal? ch #\r) (acp-sessions)]
        [(equal? ch #\n) (acp-new-session)]
        [(equal? ch #\t) (acp-expand-toggle)]
@@ -2174,3 +2179,31 @@
         (set-register! #\" (list (string-append code "\n")))
         (paste_after))
       (set-status! "acp: no code block in the last response")))
+
+;;@doc
+;; Pick any acp.hx action from a list that also shows its key.
+(define (acp-menu)
+  (define actions
+    (list (list "Settings" "^o" acp-settings)
+          (list "Switch mode" "⇧⇥" acp-cycle-mode)
+          (list "Model" "" acp-model)
+          (list "Effort" "" acp-effort)
+          (list "New session" "^n" acp-new-session)
+          (list "Resume session" "^r" acp-sessions)
+          (list "Interrupt" "^c" acp-cancel)
+          (list "Show diff / plan details" "d" acp-diff)
+          (list "Review session edits" "" acp-review)
+          (list "Undo last edit" "" acp-undo-edit)
+          (list "Attach current file" "" acp-add-file)
+          (list "Copy last response" "" acp-yank)
+          (list "Insert last code block" "" acp-insert-code)
+          (list "Expand all output" "^t" acp-expand-toggle)
+          (list "Toggle follow-along" "^f" acp-follow-toggle)
+          (list "Switch agent" "" acp-switch-agent)
+          (list "Restart agent" "" acp-restart)
+          (list "Wider panel" "" acp-wider)
+          (list "Narrower panel" "" acp-narrower)
+          (list "Close panel" "" acp-close)))
+  (acp-pick! "Actions"
+             (map (lambda (a) (list (car a) (cadr a) (caddr a) #f)) actions)
+             (lambda (thunk) (thunk))))

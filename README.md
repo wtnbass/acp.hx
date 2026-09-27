@@ -74,6 +74,7 @@ a = ":acp-add-selection"
 | Esc | エディタに focus を戻す（パネルは残る） |
 | Ctrl-c | 実行中のターンを中断 / 入力をクリア |
 | Shift-Tab | mode を順に切り替え（Manual → Accept edits → Plan → Auto） |
+| Ctrl-p | アクション一覧（すべての操作とキー割り当て） |
 | Ctrl-o | 設定ピッカー（mode / model / effort / fast） |
 | Ctrl-r | 過去のセッションを選んで再開 |
 | Ctrl-n | 新しいセッション |
@@ -94,6 +95,7 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | コマンド | 動作 |
 | --- | --- |
 | `:acp-open` / `:acp-focus` / `:acp-close` / `:acp-toggle` | パネルの表示と focus |
+| `:acp-menu` | アクション一覧を開く |
 | `:acp-new-session` / `:acp-sessions` | 新規セッション / 過去のセッションを再開 |
 | `:acp-settings` / `:acp-mode` / `:acp-model` / `:acp-effort` / `:acp-cycle-mode` | 設定の変更 |
 | `:acp-add-file` / `:acp-add-selection` | 現在のファイル / 選択範囲を次のプロンプトに添付 |
