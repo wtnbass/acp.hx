@@ -33,6 +33,7 @@
          acp-expand-toggle
          acp-diff
          acp-review
+         acp-undo-edit
          acp-wider
          acp-yank
          acp-insert-code
@@ -199,6 +200,7 @@
 (define *acp-history* '())
 (define *acp-history-pos* -1)
 (define *acp-attachments* '()) ; list of hash: label + content block
+(define *acp-notes* '()) ; things the agent should hear with the next prompt
 (define *acp-completion-index* 0)
 (define *acp-files* '()) ; workspace files for @ completion
 
@@ -475,6 +477,7 @@
                    (hash "sessionId" *acp-session-id*
                          "prompt" (append (map (lambda (a) (get a 'block)) attachments)
                                           (mention-blocks text)
+                                          (map (lambda (n) (hash "type" "text" "text" n)) (acp-take-notes!))
                                           (list (hash "type" "text" "text" text))))
                    (lambda (result)
                      (acp-turn-finished!)
@@ -861,6 +864,65 @@
                                             edits)
                                        "\n")
                           "\n"))))))
+
+;;; ===========================================================================
+;;; undoing edits
+
+(define (acp-take-notes!)
+  (define notes (reverse *acp-notes*))
+  (set! *acp-notes* '())
+  notes)
+
+(define (read-file path)
+  (read-port-to-string (open-input-file path)))
+
+(define (write-file path text)
+  (define port (open-output-file path #:exists 'truncate))
+  (write-string text port)
+  (close-output-port port))
+
+(define (count-occurrences haystack needle)
+  (- (length (split-many haystack needle)) 1))
+
+;; put one diff block back; #t when its new text was found exactly once
+(define (revert-block! c)
+  (define path (get c 'path))
+  (define old (or (get c 'oldText) ""))
+  (define new (get c 'newText))
+  (with-handler
+   (lambda (_) #f)
+   (and (string? path) (string? new) (not (equal? new ""))
+        (let ([content (read-file path)])
+          (and (= (count-occurrences content new) 1)
+               (begin
+                 (write-file path (string-replace content new (if (void? old) "" old)))
+                 (acp-reload-clean-doc! (cons path #f))
+                 #t))))))
+
+;;@doc
+;; Revert the agent's most recent edit that has not been reverted yet.
+;; The agent is told about it with the next prompt.
+(define (acp-undo-edit)
+  (define e (find-first (lambda (e) (and (equal? (Entry-kind e) 'tool)
+                                         (equal? (entry-get e 'status) "completed")
+                                         (not (entry-get e 'reverted))
+                                         (pair? (diff-blocks (entry-get e 'content)))))
+                        *acp-entries*))
+  (cond
+    [(not e) (set-status! "acp: no edit to undo")]
+    [else
+     (define blocks (reverse (diff-blocks (entry-get e 'content))))
+     (define ok? (foldl (lambda (c acc) (and (revert-block! c) acc)) #t blocks))
+     (define title (or (entry-get e 'title) "edit"))
+     (if ok?
+         (begin
+           (entry-set! e 'reverted #t)
+           (entry-set! e 'title (string-append title " (reverted)"))
+           (set! *acp-notes* (cons (string-append "Note: the user reverted your edit \"" title
+                                                  "\"; the file is back to its previous content.")
+                                   *acp-notes*))
+           (set-status! (string-append "acp: reverted " title)))
+         (set-status! (string-append "acp: could not revert " title " (the file changed since)")))]))
 
 ;;; ===========================================================================
 ;;; context attachments
