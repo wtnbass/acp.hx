@@ -1,7 +1,25 @@
 # acp.hx
 
-helix (steel plugin) から [ACP (Agent Client Protocol)](https://agentclientprotocol.com) のエージェントを起動し、右サイドバーでチャットする PoC。
+helix (steel plugin) から [ACP (Agent Client Protocol)](https://agentclientprotocol.com) のエージェントを起動し、右サイドバーで対話するプラグイン。
 デフォルトのエージェントは `npx -y @agentclientprotocol/claude-agent-acp`（Claude Code）。
+
+```
+│ ✻ Claude Agent  Rust 入門 Markdown 作成
+│ ⏵⏵ Manual  ◆ Opus 5.5  ◇ Xhigh  ◉ follow
+│ ctx 34k/1.0M 3%  $0.22  5h 36%  7d 14%
+│ ──────────────────────────────────────────
+│ ❯ sample.txt の line 20 を置換して
+│ ⏺ Edit sample.txt
+│   ⎿ sample.txt  +1 -1
+│     - line 20
+│     + LINE TWENTY
+│ ⏺ 置換しました。
+│ ✳ Working… (3s · ^c to interrupt)
+│ ──────────────────────────────────────────
+│ ❯ @README.md を要約して
+│ ──────────────────────────────────────────
+│ ⏎ send · ⇧⇥ mode · ^o settings · ^r sessions …
+```
 
 ## 試す
 
@@ -9,51 +27,109 @@ helix (steel plugin) から [ACP (Agent Client Protocol)](https://agentclientpro
 HELIX_STEEL_CONFIG=$PWD/dev hx
 ```
 
-`:acp-open` でパネルを開く。
+`:acp-open` でパネルを開く。`dev/check.sh` は同じ設定を tmux で起動し、steel の読み込みエラーがあれば表示する。
 
-| キー (パネル focus 中) | 動作 |
-| --- | --- |
-| 文字入力 / Enter | プロンプト送信 |
-| Esc | エディタに focus を戻す（パネルは残る） |
-| Ctrl-c | 実行中のターンをキャンセル (`session/cancel`) |
-| Ctrl-u | 入力をクリア |
-| PageUp / PageDown | スクロール |
-| 1-9 / Esc | permission リクエストに回答 / キャンセル |
+## 普段の設定に入れる
 
-コマンド: `:acp-open` `:acp-focus` `:acp-close` `:acp-toggle` `:acp-cancel` `:acp-follow-toggle`
+```sh
+ln -s ~/ghq/github.com/wtnbass/acp.hx ~/.local/share/steel/cogs/acp
+```
 
-設定例 (`init.scm`):
+`init.scm`:
 
 ```scheme
 (require "acp/acp.scm")
-(acp-configure! #:width 70 #:command "npx -y @agentclientprotocol/claude-agent-acp")
+(acp-configure! #:width 64)
 ```
 
-エージェントの stderr は `/tmp/acp-hx.log` に出る。
+`config.toml` のキー割り当て例:
+
+```toml
+[keys.normal.space]
+a = ":acp-toggle"
+
+[keys.normal.space.A]
+f = ":acp-add-file"
+d = ":acp-diff"
+m = ":acp-mode"
+s = ":acp-sessions"
+
+[keys.select.space]
+a = ":acp-add-selection"
+```
+
+## パネル内のキー
+
+| キー | 動作 |
+| --- | --- |
+| Enter | 送信（補完候補が出ていれば確定） |
+| Alt-Enter / Ctrl-j | 改行 |
+| Esc | エディタに focus を戻す（パネルは残る） |
+| Ctrl-c | 実行中のターンを中断 / 入力をクリア |
+| Shift-Tab | mode を順に切り替え（Manual → Accept edits → Plan → Auto） |
+| Ctrl-o | 設定ピッカー（mode / model / effort / fast） |
+| Ctrl-r | 過去のセッションを選んで再開 |
+| Ctrl-n | 新しいセッション |
+| Ctrl-t | ツール出力・diff・thinking の全文表示を切り替え |
+| Ctrl-f | follow-along の切り替え |
+| `/` | スラッシュコマンドの補完（Tab / Enter で確定） |
+| `@` | ワークスペースのファイル補完。送信時に `resource_link` として添付 |
+| ↑ / ↓ | 補完候補の選択、または入力履歴 |
+| ← → Home End Ctrl-a Ctrl-e Ctrl-w Ctrl-u | 行編集 |
+| PageUp / PageDown・ホイール | スクロール |
+
+permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で確定、`d` で diff 全体を開く、Esc で拒否。
+
+## コマンド
+
+| コマンド | 動作 |
+| --- | --- |
+| `:acp-open` / `:acp-focus` / `:acp-close` / `:acp-toggle` | パネルの表示と focus |
+| `:acp-new-session` / `:acp-sessions` | 新規セッション / 過去のセッションを再開 |
+| `:acp-settings` / `:acp-mode` / `:acp-model` / `:acp-effort` / `:acp-cycle-mode` | 設定の変更 |
+| `:acp-add-file` / `:acp-add-selection` | 現在のファイル / 選択範囲を次のプロンプトに添付 |
+| `:acp-diff` | 保留中の permission、または直近の編集の diff を開く |
+| `:acp-cancel` | 実行中のターンを中断 |
+| `:acp-follow-toggle` / `:acp-expand-toggle` | follow-along / 全文表示の切り替え |
+| `:acp-wider` / `:acp-narrower` | パネル幅の変更 |
+| `:acp-restart` / `:acp-quit` | エージェントの再起動 / 停止 |
+
+`acp-configure!` のオプション: `#:command`（エージェントの起動コマンド）、`#:width`、`#:log`（エージェントの stderr の出力先、既定は `/tmp/acp-hx.log`）、`#:follow`（`'on` / `'off`）。
+
+## 表示している情報
+
+- ヘッダー: エージェント名、セッションタイトル（`session_info_update`）
+- 1 行目: mode・model・effort・fast mode（`configOptions`）、follow の状態
+- 2 行目: context の使用量と割合、セッションのコスト、5 時間 / 7 日のレート制限の使用率（`usage_update`）
+- 本文: ユーザー入力、Markdown で整形した返答、thinking、ツール呼び出し（状態の色、diff、出力のプレビュー）、plan のチェックリスト
 
 ## follow-along
 
-エージェントが読んだり編集したりしているファイルを、エディタ側で自動的に開いて該当行へ移動する（デフォルトで有効、パネル見出しに `· follow` と表示される）。
+エージェントが読んだり編集したりしているファイルを、エディタ側で自動的に開いて該当行へ移動する。
 
 - `tool_call` / `tool_call_update` の `locations` の先頭を `:open` し、`line` があれば `:goto` して画面中央に寄せる
 - ワークスペース外のパス（Claude のメモリファイルなど）は追わない
-- ツールが `completed` になったら、`locations` のファイルが開いていて未保存の変更が無ければ reload する（エージェントの編集をバッファに反映するため）
-- `:acp-follow-toggle` か `(acp-configure! #:follow 'off)` で無効化
+- ツールが `completed` になったら、`locations` のファイルが開いていて未保存の変更が無ければ reload する
 
 ## 構成
 
 - 子プロセスの stdout を `spawn-native-thread` 上で `read-line-from-port` し、`hx.with-context` でメインスレッドに渡して状態を更新する
-- パネルは forest と同じく bg component（描画のみ、イベントは素通し）と fg component（focus 中だけ push してキーを受ける）の 2 枚構成。`set-editor-clip-right!` でエディタ領域を縮める
+- パネルは forest と同じく bg component（描画、ホイール、クリック）と fg component（focus 中だけ push してキーを受ける）の 2 枚構成。`set-editor-clip-right!` でエディタ領域を縮める
+- ピッカーは別 component をパネルの上に重ねる
+- 返答は Markdown の行単位で折り返し結果をキャッシュし、ストリーミング中は最後の行だけ組み直す
 
 ## 対応している ACP の範囲
 
-- `initialize` → `session/new` → `session/prompt`
-- `session/update`: `agent_message_chunk` / `agent_thought_chunk` / `tool_call` / `tool_call_update` / `plan`
+- `initialize` / `session/new` / `session/load` / `session/list` / `session/prompt` / `session/cancel` / `session/set_config_option`
+- `session/update`: `agent_message_chunk` / `agent_thought_chunk` / `user_message_chunk` / `tool_call` / `tool_call_update` / `plan` / `config_option_update` / `current_mode_update` / `available_commands_update` / `usage_update` / `session_info_update`
 - `session/request_permission`
-- `tool_call.locations`（follow-along）
+- プロンプトの content: `text` / `resource_link`（`@` とファイル添付） / `resource`（選択範囲）
 - `fs/*` と `terminal/*` は capability を false で宣言し、未対応
 
 ## ハマりどころ
 
 - `write-line!` は文字列を quote 付きで書くので `write-string` を使う
 - `string->jsexpr` は JSON の数値をすべて float にするため、リクエスト ID は文字列にしている
+- `helix/static.scm` が `range` を export しているので、同名の関数は使えない
+- `:new` で作ったバッファに `insert_string` した後で閉じると helix が panic するので、diff は一時ファイル（`/tmp/acp-hx/*.diff`）に書いて開く
+- steel の読み込みエラーは起動時のステータスに一瞬出るだけなので、`dev/check.sh` で確認する

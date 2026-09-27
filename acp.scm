@@ -31,6 +31,8 @@
          acp-follow-toggle
          acp-expand-toggle
          acp-diff
+         acp-wider
+         acp-narrower
          acp-configure!)
 
 ;;; ===========================================================================
@@ -861,21 +863,42 @@
                        (cons (emit cur) out) #f)))
            (loop (cdr cells) (cons (car cells) cur) (+ w cw) out first?))])))
 
-;; inline markdown: `code` and **bold**
+;; inline markdown: `code`, **bold**, *italic* / _italic_ and [text](url)
 (define (inline-segs text base)
-  (define parts (split-many text "`"))
-  (let loop ([ps parts] [code? #f] [out '()])
+  (define (flush acc style out)
+    (if (null? acc) out (cons (seg (list->string (reverse acc)) style) out)))
+  ;; index of the first `ch` in the char list, or #f
+  (define (find-char cs ch)
+    (let loop ([cs cs] [i 0])
+      (cond [(null? cs) #f] [(equal? (car cs) ch) i] [else (loop (cdr cs) (+ i 1))])))
+  (let loop ([cs (string->list text)] [acc '()] [out '()] [bold? #f] [italic? #f])
+    (define style (cond [bold? 'bold] [italic? 'italic] [else base]))
     (cond
-      [(null? ps) (reverse out)]
-      [code? (loop (cdr ps) #f (if (equal? (car ps) "") out (cons (seg (car ps) 'code) out)))]
-      [else
-       (define bold-parts (split-many (car ps) "**"))
-       (define segs
-         (let bl ([bs bold-parts] [bold? #f] [acc '()])
-           (cond [(null? bs) (reverse acc)]
-                 [(equal? (car bs) "") (bl (cdr bs) (not bold?) acc)]
-                 [else (bl (cdr bs) (not bold?) (cons (seg (car bs) (if bold? 'bold base)) acc))])))
-       (loop (cdr ps) #t (append (reverse segs) out))])))
+      [(null? cs) (reverse (flush acc style out))]
+      ;; `code`
+      [(and (equal? (car cs) #\`) (find-char (cdr cs) #\`))
+       => (lambda (i)
+            (loop (list-tail (cdr cs) (+ i 1)) '()
+                  (cons (seg (list->string (take (cdr cs) i)) 'code) (flush acc style out))
+                  bold? italic?))]
+      ;; **bold**
+      [(and (equal? (car cs) #\*) (pair? (cdr cs)) (equal? (cadr cs) #\*))
+       (loop (cddr cs) '() (flush acc style out) (not bold?) italic?)]
+      ;; *italic* only when it opens before a word or closes after one
+      [(and (or (equal? (car cs) #\*) (and (equal? (car cs) #\_) (or italic? (null? acc) (char-whitespace? (car acc)))))
+            (or italic? (and (pair? (cdr cs)) (not (char-whitespace? (cadr cs))) (find-char (cdr cs) (car cs)))))
+       (loop (cdr cs) '() (flush acc style out) bold? (not italic?))]
+      ;; [text](url)
+      [(and (equal? (car cs) #\[) (find-char (cdr cs) #\]))
+       => (lambda (i)
+            (define rest (list-tail (cdr cs) (+ i 1)))
+            (define close (and (pair? rest) (equal? (car rest) #\() (find-char (cdr rest) #\))))
+            (if close
+                (loop (list-tail (cdr rest) (+ close 1)) '()
+                      (cons (seg (list->string (take (cdr cs) i)) 'link) (flush acc style out))
+                      bold? italic?)
+                (loop (cdr cs) (cons (car cs) acc) out bold? italic?)))]
+      [else (loop (cdr cs) (cons (car cs) acc) out bold? italic?)])))
 
 (define (heading-level line)
   (let loop ([i 0])
@@ -1088,6 +1111,8 @@
     [(equal? sym 'text) (theme-scope-ref "ui.text")]
     [(equal? sym 'dim) (style-with-dim (theme-scope-ref "ui.text"))]
     [(equal? sym 'bold) (style-with-bold (theme-scope-ref "ui.text"))]
+    [(equal? sym 'italic) (style-with-italics (theme-scope-ref "ui.text"))]
+    [(equal? sym 'link) (theme-scope-ref "markup.link.text")]
     [(equal? sym 'code) (theme-scope-ref "markup.raw")]
     [(equal? sym 'heading) (style-with-bold (theme-scope-ref "markup.heading"))]
     [(equal? sym 'user) (style-with-bold (theme-scope-ref "ui.text"))]
@@ -1167,7 +1192,10 @@
   (define secs (quotient (- (now-ms) *acp-turn-start*) 1000))
   (list (seg (string-append (list-ref *spinner* (modulo *acp-spinner-frame* (length *spinner*))) " ") 'running)
         (seg "Working… " 'running)
-        (seg (string-append "(" (number->string secs) "s · ^c to interrupt)") 'dim)))
+        (seg (string-append "(" (number->string secs) "s"
+                            (if (> *acp-busy* 1) (string-append " · " (number->string (- *acp-busy* 1)) " queued") "")
+                            " · ^c to interrupt)")
+             'dim)))
 
 ;; wrap plain chars into row strings, breaking on newlines and width
 (define (wrap-chars chars width)
@@ -1280,6 +1308,12 @@
   (list (seg "⏎ send · ⇧⇥ mode · ^o settings · ^r sessions · ^n new · esc editor" 'dim)))
 
 (define (acp-render state rect frame)
+  (define t0 (now-ms))
+  (acp-render-panel rect frame)
+  (define dt (- (now-ms) t0))
+  (when (> dt 30) (log::warn! (string-append "acp.hx: slow render " (number->string dt) "ms"))))
+
+(define (acp-render-panel rect frame)
   (define w (acp-panel-width rect))
   (define x0 (- (area-width rect) w))
   (define y0 1) ; below the bufferline
@@ -1737,3 +1771,15 @@
 (define (acp-expand-toggle)
   (set! *acp-expand?* (not *acp-expand?*))
   (acp-redraw!))
+
+;;@doc
+;; Widen the sidebar by 8 columns.
+(define (acp-wider)
+  (set! *acp-width* (+ *acp-width* 8))
+  (acp-invalidate-all!))
+
+;;@doc
+;; Narrow the sidebar by 8 columns.
+(define (acp-narrower)
+  (set! *acp-width* (max 30 (- *acp-width* 8)))
+  (acp-invalidate-all!))
