@@ -1013,6 +1013,51 @@
                        '())])
         (wrap-segs segs inner hang))))
 
+;; markdown table rows -> aligned lines, or one wrapped line per row when too wide
+(define (table-cells row)
+  (define parts (map trim (split-many (trim row) "|")))
+  ;; drop the empty strings before the first and after the last pipe
+  (define inner (if (and (pair? parts) (equal? (car parts) "")) (cdr parts) parts))
+  (if (and (pair? inner) (equal? (last inner) "")) (reverse (cdr (reverse inner))) inner))
+
+(define (separator-row? cells)
+  (and (pair? cells)
+       (null? (filter (lambda (c) (not (and (> (string-length c) 0)
+                                           (null? (filter (lambda (ch) (not (member ch '(#\- #\:))))
+                                                          (string->list c))))))
+                      cells))))
+
+(define (table-lines rows inner)
+  (define parsed (map table-cells rows))
+  (define body (filter (lambda (r) (not (separator-row? r))) parsed))
+  (define cols (foldl (lambda (r acc) (max acc (length r))) 0 body))
+  (define cell-segs (map (lambda (r i) (map (lambda (c) (inline-segs c (if (= i 0) 'bold 'text))) r))
+                         body (indices (length body))))
+  (define widths
+    (map (lambda (k)
+           (foldl (lambda (r acc) (if (< k (length r)) (max acc (segs-width (list-ref r k))) acc)) 0 cell-segs))
+         (indices cols)))
+  (define total (+ (foldl + 0 widths) (* 3 (max 0 (- cols 1)))))
+  (define (pad segs w) (append segs (list (seg (make-string (max 0 (- w (segs-width segs))) #\space) 'text))))
+  (if (> total inner)
+      (apply append
+             (map (lambda (r) (wrap-segs (apply append (map (lambda (c i) (if (= i 0) c (cons (seg " │ " 'dim) c)))
+                                                           r (indices (length r))))
+                                        inner (list (seg "  " 'dim))))
+                  cell-segs))
+      (apply append
+             (map (lambda (r i)
+                    (define line
+                      (apply append (map (lambda (k)
+                                           (define c (if (< k (length r)) (list-ref r k) '()))
+                                           (if (= k 0) (pad c (list-ref widths k))
+                                               (cons (seg " │ " 'dim) (pad c (list-ref widths k)))))
+                                         (indices cols))))
+                    (if (= i 0)
+                        (list line (list (seg (string-join (map (lambda (w) (make-string w #\─)) widths) "─┼─") 'dim)))
+                        (list line)))
+                  cell-segs (indices (length cell-segs))))))
+
 ;; "12. item" -> length of the "12. " marker
 (define (numbered-item trimmed)
   (let loop ([i 0])
@@ -1067,6 +1112,14 @@
     (cond
       [(null? ls) (reverse out)]
       [(starts-with? (trim (car ls)) "```") (loop (cdr ls) (not code?) out)]
+      [(and (not code?) (starts-with? (trim (car ls)) "|"))
+       ;; a table is laid out as a whole block
+       (define rows (let take-rows ([ls ls] [acc '()])
+                      (if (and (pair? ls) (starts-with? (trim (car ls)) "|"))
+                          (take-rows (cdr ls) (cons (car ls) acc))
+                          (reverse acc))))
+       (loop (list-tail ls (length rows)) #f
+             (append (reverse (map (lambda (l) (append indent l)) (table-lines rows inner))) out))]
       [else
        (define wrapped (markdown-line (car ls) code? inner))
        (loop (cdr ls) code? (append (reverse (map (lambda (l) (append indent l)) wrapped)) out))])))

@@ -49,7 +49,7 @@ async function scenario(sid, name) {
       content: [{ type: "content", content: { type: "text", text: "```console\nerror[E0425]: cannot find value `x`\n```" } }] });
   }
   if (name === "md" || name === "all") {
-    const text = "## Summary\n\nChanged **one** line in `main.rs`, see [docs](https://example.com).\nThis sentence continues\nafter a soft break.\n\n- first *point*\n- second point\n\n1. 番号付きの項目はとても長いので折り返したときに字下げがそろっているかを確認します\n2. two\n\n```rust\nfn main() {}\n```\n";
+    const text = "## Summary\n\nChanged **one** line in `main.rs`, see [docs](https://example.com).\nThis sentence continues\nafter a soft break.\n\n- first *point*\n- second point\n\n1. 番号付きの項目はとても長いので折り返したときに字下げがそろっているかを確認します\n2. two\n\n| 項目 | 値 |\n|---|:--:|\n| `mode` | Manual |\n| model | Opus |\n\n```rust\nfn main() {}\n```\n";
     for (const chunk of text.match(/.{1,12}/gs)) {
       update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: chunk } });
       await sleep(20);
