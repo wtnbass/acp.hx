@@ -34,7 +34,7 @@ async function scenario(sid, name) {
     update(sid, { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read README.md", kind: "read", status: "pending",
       locations: [{ path: `${process.cwd()}/README.md`, line: 20 }] });
     update(sid, { sessionUpdate: "tool_call_update", toolCallId: "t1", status: "completed",
-      content: [{ type: "content", content: { type: "text", text: "```\nfn main() {\n    println!(\"hi\");\n}\n```" } }] });
+      content: [{ type: "content", content: { type: "text", text: "```\n" + Array.from({ length: 8 }, (_, i) => `readme line ${i + 1}`).join("\n") + "\n```" } }] });
     update(sid, { sessionUpdate: "tool_call", toolCallId: "t2", title: "Edit src/main.rs", kind: "edit", status: "pending",
       content: [{ type: "diff", path: "/tmp/src/main.rs", oldText: "fn main() {\n    println!(\"hi\");\n}", newText: "fn main() {\n    println!(\"hello\");\n}" }] });
     const answer = await request("session/request_permission", {

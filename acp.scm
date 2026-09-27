@@ -736,11 +736,18 @@
     (acp-open-location! (car locations))))
 
 ;; clicking a tool call opens the file it touched
+;; the header row of a tool call or thought toggles its full output; other rows
+;; of a tool call open the file it touched
 (define (acp-click-transcript! event)
   (define hit (assoc (event-mouse-row event) *acp-row-entries*))
-  (define e (and hit (cdr hit)))
-  (define locs (if (and e (equal? (Entry-kind e) 'tool)) (acp-locations (unbox (Entry-data e))) '()))
+  (define e (and hit (car (cdr hit))))
+  (define header? (and hit (= (cdr (cdr hit)) 0)))
+  (define kind (and e (Entry-kind e)))
+  (define locs (if (equal? kind 'tool) (acp-locations (unbox (Entry-data e))) '()))
   (cond
+    [(and (member kind '(tool thought)) (or header? (null? locs)))
+     (entry-set! e 'expanded (not (entry-get e 'expanded)))
+     #t]
     [(pair? locs) (acp-open-location! (car locs)) #t]
     [else #f]))
 
@@ -1135,8 +1142,12 @@
   (define lines (filter (lambda (l) (not (starts-with? (trim l) "```"))) (split-many text "\n")))
   (string-join lines "\n"))
 
+(define *acp-expand-entry?* #f) ; set while laying out an entry the user expanded
+
+(define (expanded?) (or *acp-expand?* *acp-expand-entry?*))
+
 (define (collapse lines limit)
-  (if (or *acp-expand?* (<= (length lines) limit))
+  (if (or (expanded?) (<= (length lines) limit))
       lines
       (append (take-at-most lines limit)
               (list (list (seg (string-append "    … +" (number->string (- (length lines) limit))
@@ -1144,7 +1155,7 @@
                                'dim))))))
 
 (define (collapse-title lines)
-  (if (or *acp-expand?* (<= (length lines) 2))
+  (if (or (expanded?) (<= (length lines) 2))
       lines
       (let ([head (take-at-most lines 2)])
         (append (take-at-most head 1)
@@ -1268,7 +1279,9 @@
   (define cache (unbox (Entry-cache e)))
   (if (and cache (= (car cache) width) (equal? (cadr cache) *acp-expand?*))
       (caddr cache)
-      (let ([lines (entry-lines-uncached e width)])
+      (let ([lines (begin (set! *acp-expand-entry?* (entry-get e 'expanded))
+                          (entry-lines-uncached e width))])
+        (set! *acp-expand-entry?* #f)
         (set-box! (Entry-cache e) (list width *acp-expand?* lines))
         lines)))
 
@@ -1279,10 +1292,12 @@
     (if (or (null? es) (>= n needed))
         acc
         (let* ([e (car es)]
-               [ls (append (map (lambda (l) (cons e l)) (entry-lines e width)) (list (cons #f '())))])
+               [ls (append (map (lambda (l i) (cons (cons e i) l)) (entry-lines e width)
+                                (indices (length (entry-lines e width))))
+                           (list (cons #f '())))])
           (loop (cdr es) (append ls acc) (+ n (length ls)))))))
 
-(define *acp-row-entries* '()) ; (y . entry) of the rows drawn last frame
+(define *acp-row-entries* '()) ; (y entry . line-index) of the rows drawn last frame
 (define *acp-last-total* #f)
 
 (define (transcript-length width)

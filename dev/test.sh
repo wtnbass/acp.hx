@@ -45,8 +45,17 @@ expect '51k/200k 26%  $0.43' "usage line"
 expect "Fake session (all)" "session title"
 
 keys C-f; sleep 0.3
+click() { type_ "$(printf '\033[<0;150;%sM\033[<0;150;%sm' "$1" "$1")"; sleep 0.8; }
 row=$(tmux capture-pane -t $S -p | grep -n "Read README.md" | head -1 | cut -d: -f1)
-type_ "$(printf '\033[<0;150;%sM\033[<0;150;%sm' "$row" "$row")"; sleep 0.8
+expect "+4 lines (^t to expand)" "long tool output is collapsed"
+click "$row"
+expect "readme line 8" "clicking a tool header expands it"
+# expanding pushes the header up because the view sticks to the bottom
+row=$(tmux capture-pane -t $S -p | grep -n "Read README.md" | head -1 | cut -d: -f1)
+click "$row"
+if screen | grep -qF "readme line 8"; then echo "FAIL clicking again collapses it"; fail=1; else echo "ok   clicking again collapses it"; fi
+row=$(tmux capture-pane -t $S -p | grep -n "Read README.md" | head -1 | cut -d: -f1)
+click $((row + 1))
 if tmux capture-pane -t $S -p | grep -q "NOR   README.md"; then echo "ok   clicking a tool call opens its file"; else echo "FAIL clicking a tool call opens its file"; fail=1; fi
 keys ":acp-focus" Enter; sleep 0.3
 
