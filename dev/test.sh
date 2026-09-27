@@ -44,6 +44,8 @@ expect "• first point" "markdown bullets"
 expect '51k/200k 26%  $0.43' "usage line"
 expect "Fake session (all)" "session title"
 
+# a short transcript tail keeps the Read header on screen
+type_ "tools"; keys Enter; sleep 1; keys 1; sleep 1
 keys C-f; sleep 0.3
 click() { type_ "$(printf '\033[<0;150;%sM\033[<0;150;%sm' "$1" "$1")"; sleep 0.8; }
 row=$(tmux capture-pane -t $S -p | grep -n "Read README.md" | head -1 | cut -d: -f1)
