@@ -339,7 +339,12 @@
      (define files
        (with-handler
         (lambda (_) '())
-        (let ([r (~> (command "git" (list "-C" cwd "ls-files" "--cached" "--others" "--exclude-standard"))
+        ;; stderr must not reach the terminal helix draws on
+        (let ([r (~> (command "sh" (list "-c" (string-append
+                                              "git ls-files --cached --others --exclude-standard 2>/dev/null"
+                                              " || find . -type f -not -path '*/.*' 2>/dev/null"
+                                              " | sed 's|^\\./||' | head -20000")))
+                     (with-current-dir cwd)
                      (with-stdout-piped)
                      (spawn-process))])
           (if (Ok? r)
@@ -452,6 +457,9 @@
 
 (define (acp-turn-finished!)
   (set! *acp-busy* (max 0 (- *acp-busy* 1)))
+  ;; the panel may be hidden or unfocused while the agent works
+  (when (and (not (acp-busy?)) (not *acp-focused?*))
+    (set-status! (string-append "acp: " *acp-agent-title* " finished")))
   (when (and (not (acp-busy?)) *acp-permission*)
     (set! *acp-permission* #f)))
 
@@ -734,24 +742,40 @@
 
 (define *acp-diff-count* 0)
 
-;; diffs open as real files: a scratch buffer filled via insert_string panics
+;; details open as real files: a scratch buffer filled via insert_string panics
 ;; helix when it is closed
+(define (text-blocks content)
+  (filter (lambda (c) (and (equal? (get c 'type) "content") (string? (get c 'content 'text))))
+          (or content '())))
+
+(define (acp-write-tmp! name text)
+  (define dir "/tmp/acp-hx")
+  (with-handler (lambda (_) void) (create-directory! dir))
+  (set! *acp-diff-count* (+ *acp-diff-count* 1))
+  (define path (string-append dir "/" (number->string *acp-diff-count*) "-" name))
+  (define port (open-output-file path #:exists 'truncate))
+  (write-string text port)
+  (close-output-port port)
+  path)
+
 (define (acp-open-diff! title content)
   (define blocks (diff-blocks content))
-  (if (null? blocks)
-      (set-status! "acp: no diff to show")
-      (let* ([dir "/tmp/acp-hx"]
-             [_ (with-handler (lambda (_) void) (create-directory! dir))]
-             [name (last (split-many (or (get (car blocks) 'path) "edit") "/"))]
-             [path (begin (set! *acp-diff-count* (+ *acp-diff-count* 1))
-                          (string-append dir "/" (number->string *acp-diff-count*) "-" name ".diff"))]
-             [port (open-output-file path #:exists 'truncate)])
-        (write-string (string-append (string-join (map diff-block-text blocks) "\n") "\n") port)
-        (close-output-port port)
-        (helix.open path))))
+  (define texts (text-blocks content))
+  (cond
+    [(pair? blocks) (acp-open-diff-blocks! blocks)]
+    ;; plans and other prose open as markdown
+    [(pair? texts)
+     (helix.open (acp-write-tmp! "details.md"
+                                 (string-join (map (lambda (c) (get c 'content 'text)) texts) "\n\n")))]
+    [else (set-status! "acp: nothing to show")]))
+
+(define (acp-open-diff-blocks! blocks)
+  (define name (last (split-many (or (get (car blocks) 'path) "edit") "/")))
+  (helix.open (acp-write-tmp! (string-append name ".diff")
+                              (string-append (string-join (map diff-block-text blocks) "\n") "\n"))))
 
 ;;@doc
-;; Show the pending permission's diff, or the latest edit, in a scratch buffer.
+;; Open the pending permission's diff or plan, or the latest edit's diff.
 (define (acp-diff)
   (cond
     [*acp-permission*
@@ -1012,7 +1036,7 @@
         [(equal? status "in_progress") 'running]
         [else 'pending]))
 
-(define (tool-content-lines content width)
+(define (tool-content-lines content width [limit 4])
   (apply append
          (map (lambda (c)
                 (define type (get c 'type))
@@ -1022,12 +1046,15 @@
                    (cons (list (seg "  ⎿ " 'dim)
                                (seg (relative-path path) 'text)
                                (seg (string-append "  " (diff-stat (get c 'oldText) (get c 'newText))) 'dim))
-                         (collapse (diff-lines (get c 'oldText) (get c 'newText) width) 12))]
+                         (collapse (diff-lines (get c 'oldText) (get c 'newText) width) (max 12 limit)))]
                   [(equal? type "content")
                    (define text (get c 'content 'text))
-                   (if (and (string? text) (not (string-blank? (strip-fences text))))
-                       (collapse (plain-lines (strip-fences text) width (list (seg "    " 'dim)) 'dim) 4)
-                       '())]
+                   (cond
+                     [(or (not (string? text)) (string-blank? (strip-fences text))) '()]
+                     ;; command and file output arrives fenced; prose (plans, notes) is markdown
+                     [(starts-with? (trim text) "```")
+                      (collapse (plain-lines (strip-fences text) width (list (seg "    " 'dim)) 'dim) limit)]
+                     [else (collapse (markdown-lines (trim text) width (list (seg "    " 'dim))) limit)])]
                   [else '()]))
               content)))
 
@@ -1295,14 +1322,15 @@
   (define opts (get p 'options))
   (append
    (list (list (seg "? " 'warning) (seg (truncate-width (get p 'title) (- width 2)) 'tool-title)))
-   (take-at-most (tool-content-lines (get p 'content) width) 10)
+   (tool-content-lines (get p 'content) width
+                       (if *acp-panel-area* (max 6 (- (quotient (area-height *acp-panel-area*) 2) 6)) 10))
    (map (lambda (o i)
           (define selected? (= i (get p 'index)))
           (list (seg (if selected? " ❯ " "   ") 'accent)
                 (seg (string-append (number->string (+ i 1)) ". " (or (get o 'name) "?"))
                      (if selected? 'accent 'text))))
         opts (indices (length opts)))
-   (list (list (seg "   ↑↓ select · enter confirm · d full diff · esc reject" 'dim)))))
+   (list (list (seg "   ↑↓ select · enter confirm · d details · esc reject" 'dim)))))
 
 (define (hint-segs)
   (list (seg "⏎ send · ⇧⇥ mode · ^o settings · ^r sessions · ^n new · esc editor" 'dim)))
