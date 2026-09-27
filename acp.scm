@@ -28,6 +28,7 @@
          acp-cycle-mode
          acp-add-file
          acp-add-selection
+         acp-add-image
          acp-follow-toggle
          acp-expand-toggle
          acp-diff
@@ -855,6 +856,33 @@
                    (hash "type" "resource_link"
                          "uri" (string-append "file://" path)
                          "name" (relative-path path)))))
+
+;;@doc
+;; Attach an image file (png, jpg, gif, webp) to the next prompt: `:acp-add-image path`
+(define (acp-add-image path)
+  (define full (if (starts-with? path "/") path (string-append (or *acp-cwd* (helix-find-workspace)) "/" path)))
+  (define lower (string-downcase full))
+  (define mime
+    (cond [(ends-with? lower ".png") "image/png"]
+          [(or (ends-with? lower ".jpg") (ends-with? lower ".jpeg")) "image/jpeg"]
+          [(ends-with? lower ".gif") "image/gif"]
+          [(ends-with? lower ".webp") "image/webp"]
+          [else #f]))
+  (define data
+    (and mime
+         (with-handler
+          (lambda (_) #f)
+          (let ([r (~> (command "base64" (list "-i" full)) (with-stdout-piped) (spawn-process))])
+            (and (Ok? r)
+                 (let ([out (string-replace (read-port-to-string (child-stdout (Ok->value r))) "\n" "")])
+                   (and (not (equal? out "")) out)))))))
+  (cond
+    [(not mime) (set-status! "acp: only png, jpg, gif and webp images are supported")]
+    [(not data) (set-status! (string-append "acp: could not read " full))]
+    [else
+     (acp-attach! (string-append "🖼 " (relative-path full))
+                  (hash "type" "image" "mimeType" mime "data" data "uri" (string-append "file://" full)))
+     (set-status! (string-append "acp: attached " (relative-path full)))]))
 
 ;;@doc
 ;; Attach the primary selection (with its line range) to the next prompt.

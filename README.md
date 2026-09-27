@@ -97,6 +97,7 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | `:acp-new-session` / `:acp-sessions` | 新規セッション / 過去のセッションを再開 |
 | `:acp-settings` / `:acp-mode` / `:acp-model` / `:acp-effort` / `:acp-cycle-mode` | 設定の変更 |
 | `:acp-add-file` / `:acp-add-selection` | 現在のファイル / 選択範囲を次のプロンプトに添付 |
+| `:acp-add-image <path>` | 画像（png / jpg / gif / webp）を次のプロンプトに添付 |
 | `:acp-diff` | 保留中の permission の diff / 計画、または直近の編集の diff を開く |
 | `:acp-yank` | 直近の返答をクリップボードにコピー |
 | `:acp-insert-code` | 直近の返答の最後のコードブロックを選択範囲の後ろに貼り付け |
@@ -135,7 +136,7 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 - `initialize` / `session/new` / `session/load` / `session/list` / `session/prompt` / `session/cancel` / `session/set_config_option`
 - `session/update`: `agent_message_chunk` / `agent_thought_chunk` / `user_message_chunk` / `tool_call` / `tool_call_update` / `plan` / `config_option_update` / `current_mode_update` / `available_commands_update` / `usage_update` / `session_info_update`
 - `session/request_permission`
-- プロンプトの content: `text` / `resource_link`（`@` とファイル添付） / `resource`（選択範囲）
+- プロンプトの content: `text` / `resource_link`（`@` とファイル添付） / `resource`（選択範囲） / `image`
 - `fs/*` と `terminal/*` は capability を false で宣言し、未対応
 
 エージェントが終了したときは、stderr のログの末尾 3 行をパネルに表示する。`session/new` が認証エラー（-32000）を返したときは、エージェント側の CLI でログインするよう案内する。
