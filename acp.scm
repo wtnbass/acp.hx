@@ -32,6 +32,8 @@
          acp-expand-toggle
          acp-diff
          acp-wider
+         acp-yank
+         acp-insert-code
          acp-narrower
          acp-configure!)
 
@@ -1840,3 +1842,42 @@
 (define (acp-narrower)
   (set! *acp-width* (max 30 (- *acp-width* 8)))
   (acp-invalidate-all!))
+
+;;; ===========================================================================
+;;; reusing responses
+
+(define (last-agent-text)
+  (define e (find-first (lambda (e) (equal? (Entry-kind e) 'agent)) *acp-entries*))
+  (and e (trim (entry-get e 'text))))
+
+;; body of the last fenced code block in the text
+(define (last-code-block text)
+  (let loop ([ls (split-many text "\n")] [in? #f] [cur '()] [last-block #f])
+    (cond
+      [(null? ls) (if (and in? (pair? cur)) (string-join (reverse cur) "\n") last-block)]
+      [(starts-with? (trim (car ls)) "```")
+       (if in?
+           (loop (cdr ls) #f '() (string-join (reverse cur) "\n"))
+           (loop (cdr ls) #t '() last-block))]
+      [in? (loop (cdr ls) #t (cons (car ls) cur) last-block)]
+      [else (loop (cdr ls) #f cur last-block)])))
+
+;;@doc
+;; Copy the agent's last response to the system clipboard.
+(define (acp-yank)
+  (define text (last-agent-text))
+  (if text
+      (begin (set-register! #\+ (list text)) (set-status! "acp: copied the last response"))
+      (set-status! "acp: no response yet")))
+
+;;@doc
+;; Paste the last code block of the agent's last response after the selection.
+(define (acp-insert-code)
+  (define text (last-agent-text))
+  (define code (and text (last-code-block text)))
+  (if code
+      (begin
+        (acp-unfocus!)
+        (set-register! #\" (list (string-append code "\n")))
+        (paste_after))
+      (set-status! "acp: no code block in the last response")))

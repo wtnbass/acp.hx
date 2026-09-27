@@ -4,8 +4,14 @@ cd "$(dirname "$0")/.."
 S=acphx-test
 fail=0
 screen() { tmux capture-pane -t $S -p; }
+# poll the screen for up to 5s
 expect() {
-  if screen | grep -qF -- "$1"; then echo "ok   $2"; else echo "FAIL $2 (missing: $1)"; fail=1; fi
+  i=0
+  while [ $i -lt 25 ]; do
+    if screen | grep -qF -- "$1"; then echo "ok   $2"; return; fi
+    sleep 0.2; i=$((i + 1))
+  done
+  echo "FAIL $2 (missing: $1)"; fail=1
 }
 keys() { tmux send-keys -t $S "$@"; }
 type_() { tmux send-keys -t $S -l "$1"; }
@@ -53,7 +59,12 @@ expect "⏵⏵ Plan" "shift-tab cycles mode"
 keys C-r; sleep 0.5; keys Enter; sleep 1
 expect "an old answer" "resume a session"
 
+type_ "md"; keys Enter; sleep 1
+
 keys Escape; sleep 0.3
+keys ":acp-insert-code" Enter; sleep 0.5
+expect "fn main() {}" "insert the last code block"
+
 keys ":acp-close" Enter; sleep 0.5
 if screen | grep -qF "Fake Agent"; then echo "FAIL close hides the panel"; fail=1; else echo "ok   close hides the panel"; fi
 

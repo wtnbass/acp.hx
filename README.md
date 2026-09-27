@@ -82,7 +82,9 @@ a = ":acp-add-selection"
 | ← → Home End Ctrl-a Ctrl-e Ctrl-w Ctrl-u | 行編集 |
 | PageUp / PageDown・ホイール | スクロール |
 
-permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で確定、`d` で diff 全体を開く、Esc で拒否。
+permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で確定、`d` で diff 全体や計画の本文を開く、Esc で拒否。
+
+トランスクリプトのツール呼び出しをクリックすると、そのツールが触ったファイルの該当行を開く。
 
 ## コマンド
 
@@ -92,7 +94,9 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | `:acp-new-session` / `:acp-sessions` | 新規セッション / 過去のセッションを再開 |
 | `:acp-settings` / `:acp-mode` / `:acp-model` / `:acp-effort` / `:acp-cycle-mode` | 設定の変更 |
 | `:acp-add-file` / `:acp-add-selection` | 現在のファイル / 選択範囲を次のプロンプトに添付 |
-| `:acp-diff` | 保留中の permission、または直近の編集の diff を開く |
+| `:acp-diff` | 保留中の permission の diff / 計画、または直近の編集の diff を開く |
+| `:acp-yank` | 直近の返答をクリップボードにコピー |
+| `:acp-insert-code` | 直近の返答の最後のコードブロックを選択範囲の後ろに貼り付け |
 | `:acp-cancel` | 実行中のターンを中断 |
 | `:acp-follow-toggle` / `:acp-expand-toggle` | follow-along / 全文表示の切り替え |
 | `:acp-wider` / `:acp-narrower` | パネル幅の変更 |
