@@ -162,8 +162,9 @@
   (string-append "$" (number->string d) "." (if (< c 10) "0" "") (number->string c)))
 
 (define (relative-path path)
-  (if (and *acp-cwd* (starts-with? path (string-append *acp-cwd* "/")))
-      (substring path (+ (string-length *acp-cwd*) 1) (string-length path))
+  (define root (or *acp-cwd* (helix-find-workspace)))
+  (if (and root (starts-with? path (string-append root "/")))
+      (substring path (+ (string-length root) 1) (string-length path))
       path))
 
 (define (now-ms) (current-milliseconds))
@@ -961,8 +962,10 @@
 ;;; ===========================================================================
 ;;; context attachments
 
+;; attaching is usually followed by a question, so the panel takes focus
 (define (acp-attach! label block)
   (set! *acp-attachments* (append *acp-attachments* (list (hash 'label label 'block block))))
+  (if *acp-proc* (acp-focus) (acp-open))
   (acp-redraw!))
 
 ;;@doc

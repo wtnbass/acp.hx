@@ -98,7 +98,7 @@ permission のリクエスト中は ↑↓ / 数字キーで選択、Enter で�
 | `:acp-menu` | アクション一覧を開く |
 | `:acp-new-session` / `:acp-sessions` | 新規セッション / 過去のセッションを再開 |
 | `:acp-settings` / `:acp-mode` / `:acp-model` / `:acp-effort` / `:acp-cycle-mode` | 設定の変更 |
-| `:acp-add-file` / `:acp-add-selection` | 現在のファイル / 選択範囲を次のプロンプトに添付 |
+| `:acp-add-file` / `:acp-add-selection` | 現在のファイル / 選択範囲を次のプロンプトに添付し、パネルに focus を移す |
 | `:acp-add-image <path>` | 画像（png / jpg / gif / webp）を次のプロンプトに添付 |
 | `:acp-diff` | 保留中の permission の diff / 計画、または直近の編集の diff を開く |
 | `:acp-review` | このセッションでエージェントが行った編集をまとめて 1 つの diff で開く |
