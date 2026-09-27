@@ -15,6 +15,7 @@
          acp-toggle
          acp-focus
          acp-cancel
+         acp-follow-toggle
          acp-configure!)
 
 ;;; ---------------------------------------------------------------------------
@@ -25,8 +26,10 @@
 (define *acp-log* "/tmp/acp-hx.log")
 
 ;;@doc
-;; Configure the agent command, the sidebar width, and the agent stderr log path.
-(define (acp-configure! #:command [command #f] #:width [width #f] #:log [log #f])
+;; Configure the agent command, the sidebar width, the agent stderr log path,
+;; and whether the editor follows the agent (#:follow 'on / 'off).
+(define (acp-configure! #:command [command #f] #:width [width #f] #:log [log #f] #:follow [follow #f])
+  (when follow (set! *acp-follow?* (equal? follow 'on)))
   (when command (set! *acp-command* command))
   (when width (set! *acp-width* width))
   (when log (set! *acp-log* log)))
@@ -37,6 +40,8 @@
 (define *acp-proc* #f)
 (define *acp-stdin* #f)
 (define *acp-session-id* #f)
+(define *acp-cwd* #f)
+(define *acp-follow?* #t)
 (define *acp-status* "stopped")
 
 (define *acp-next-id* 0)
@@ -153,6 +158,7 @@
   (unless *acp-proc*
     (set! *acp-status* "starting")
     (define cwd (helix-find-workspace))
+    (set! *acp-cwd* cwd)
     (define result
       (~> (command "sh" (list "-c" (string-append "exec " *acp-command* " 2>>" *acp-log*)))
           (with-current-dir cwd)
@@ -224,15 +230,24 @@
      (define id (get u 'toolCallId))
      (define title (or (get u 'title) "tool"))
      (define status (or (get u 'status) "pending"))
+     (define locations (acp-locations u))
      (define b (acp-push-entry! 'tool (acp-tool-text title status)))
-     (set! *acp-tools* (hash-insert *acp-tools* id (list b title status)))]
+     (set! *acp-tools* (hash-insert *acp-tools* id (list b title status locations)))
+     (acp-follow! locations)]
     [(equal? kind "tool_call_update")
      (define tool (hash-try-get *acp-tools* (get u 'toolCallId)))
      (when tool
        (define title (or (get u 'title) (list-ref tool 1)))
        (define status (or (get u 'status) (list-ref tool 2)))
+       (define new-locations (acp-locations u))
+       (define locations (if (pair? new-locations) new-locations (list-ref tool 3)))
        (set-box! (list-ref tool 0) (acp-tool-text title status))
-       (set! *acp-tools* (hash-insert *acp-tools* (get u 'toolCallId) (list (list-ref tool 0) title status)))
+       (set! *acp-tools*
+             (hash-insert *acp-tools* (get u 'toolCallId) (list (list-ref tool 0) title status locations)))
+       ;; an edit tool has touched the file on disk by the time it completes
+       (when (equal? status "completed")
+         (for-each acp-reload-clean-doc! locations))
+       (when (pair? new-locations) (acp-follow! new-locations))
        (acp-dirty!))]
     [(equal? kind "plan")
      (define text (acp-plan-text (or (get u 'entries) '())))
@@ -240,6 +255,55 @@
          (begin (set-box! *acp-plan-box* text) (acp-dirty!))
          (set! *acp-plan-box* (acp-push-entry! 'plan text)))]
     [else void]))
+
+;;; ---------------------------------------------------------------------------
+;;; follow-along
+
+;; tool_call.locations -> list of (cons path line-or-#f), limited to the workspace
+;; so memory files and other outside paths are not opened
+(define (acp-locations u)
+  (define locs (get u 'locations))
+  (if (list? locs)
+      (filter (lambda (l) l)
+              (map (lambda (loc)
+                     (define path (get loc 'path))
+                     (define line (get loc 'line))
+                     (and (string? path)
+                          *acp-cwd*
+                          (starts-with? path *acp-cwd*)
+                          (cons path (and (number? line) (max 1 (inexact->exact (round line)))))))
+                   locs))
+      '()))
+
+(define (acp-find-doc path)
+  (let loop ([ids (editor-all-documents)])
+    (cond
+      [(null? ids) #f]
+      [(equal? (editor-document->path (car ids)) path) (car ids)]
+      [else (loop (cdr ids))])))
+
+;; leaves unsaved buffers alone
+(define (acp-reload-clean-doc! loc)
+  (define doc (acp-find-doc (car loc)))
+  (when (and doc (not (editor-document-dirty? doc)))
+    (editor-document-reload doc)))
+
+(define (acp-follow! locations)
+  (when (and *acp-follow?* (pair? locations))
+    (define loc (car locations))
+    (with-handler
+     (lambda (err) (log::warn! (to-string "acp follow: " err)))
+     (acp-reload-clean-doc! loc)
+     (helix.open (car loc))
+     (when (cdr loc)
+       (helix.goto (number->string (cdr loc)))
+       (align_view_center)))))
+
+;;@doc
+;; Toggle whether the editor follows the files the agent reads and edits.
+(define (acp-follow-toggle)
+  (set! *acp-follow?* (not *acp-follow?*))
+  (set-status! (if *acp-follow?* "acp: follow on" "acp: follow off")))
 
 (define (acp-tool-text title status)
   (define mark
@@ -395,7 +459,7 @@
 
   ;; header
   (define title-style (if *acp-focused?* (style-with-bold (theme-scope-ref "ui.text.focus")) dim))
-  (frame-set-string! frame cx y0 (string-append "ACP · " *acp-status*) title-style)
+  (frame-set-string! frame cx y0 (string-append "ACP · " *acp-status* (if *acp-follow?* " · follow" "")) title-style)
 
   ;; footer: permission prompt + input
   (define perm-lines

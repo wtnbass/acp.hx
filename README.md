@@ -20,7 +20,7 @@ HELIX_STEEL_CONFIG=$PWD/dev hx
 | PageUp / PageDown | スクロール |
 | 1-9 / Esc | permission リクエストに回答 / キャンセル |
 
-コマンド: `:acp-open` `:acp-focus` `:acp-close` `:acp-toggle` `:acp-cancel`
+コマンド: `:acp-open` `:acp-focus` `:acp-close` `:acp-toggle` `:acp-cancel` `:acp-follow-toggle`
 
 設定例 (`init.scm`):
 
@@ -30,6 +30,15 @@ HELIX_STEEL_CONFIG=$PWD/dev hx
 ```
 
 エージェントの stderr は `/tmp/acp-hx.log` に出る。
+
+## follow-along
+
+エージェントが読んだり編集したりしているファイルを、エディタ側で自動的に開いて該当行へ移動する（デフォルトで有効、パネル見出しに `· follow` と表示される）。
+
+- `tool_call` / `tool_call_update` の `locations` の先頭を `:open` し、`line` があれば `:goto` して画面中央に寄せる
+- ワークスペース外のパス（Claude のメモリファイルなど）は追わない
+- ツールが `completed` になったら、`locations` のファイルが開いていて未保存の変更が無ければ reload する（エージェントの編集をバッファに反映するため）
+- `:acp-follow-toggle` か `(acp-configure! #:follow 'off)` で無効化
 
 ## 構成
 
@@ -41,6 +50,7 @@ HELIX_STEEL_CONFIG=$PWD/dev hx
 - `initialize` → `session/new` → `session/prompt`
 - `session/update`: `agent_message_chunk` / `agent_thought_chunk` / `tool_call` / `tool_call_update` / `plan`
 - `session/request_permission`
+- `tool_call.locations`（follow-along）
 - `fs/*` と `terminal/*` は capability を false で宣言し、未対応
 
 ## ハマりどころ
