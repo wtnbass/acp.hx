@@ -415,6 +415,7 @@
   (acp-reset-transcript!)
   (set! *acp-session-id* session-id)
   (set! *acp-session-title* #f)
+  (set! *acp-usage* #f)
   (set! *acp-status* 'starting)
   (acp-request! "session/load"
                 (hash "sessionId" session-id "cwd" *acp-cwd* "mcpServers" '())
@@ -1026,9 +1027,17 @@
           (map (lambda (l) (row "  " l 'dim)) after)))
 
 (define (diff-stat old-text new-text)
-  (define old (if (string? old-text) (length (split-many old-text "\n")) 0))
-  (define new (if (string? new-text) (length (split-many new-text "\n")) 0))
-  (string-append "+" (number->string new) " -" (number->string old)))
+  (define old (text-lines old-text))
+  (define new (text-lines new-text))
+  (define prefix
+    (let loop ([a old] [b new] [n 0])
+      (if (and (pair? a) (pair? b) (equal? (car a) (car b))) (loop (cdr a) (cdr b) (+ n 1)) n)))
+  (define old* (list-tail old prefix))
+  (define new* (list-tail new prefix))
+  (define suffix
+    (let loop ([a (reverse old*)] [b (reverse new*)] [n 0])
+      (if (and (pair? a) (pair? b) (equal? (car a) (car b))) (loop (cdr a) (cdr b) (+ n 1)) n)))
+  (string-append "+" (number->string (- (length new*) suffix)) " -" (number->string (- (length old*) suffix))))
 
 (define (tool-status-style status)
   (cond [(equal? status "completed") 'ok]

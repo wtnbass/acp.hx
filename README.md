@@ -27,7 +27,11 @@ helix (steel plugin) から [ACP (Agent Client Protocol)](https://agentclientpro
 HELIX_STEEL_CONFIG=$PWD/dev hx
 ```
 
-`:acp-open` でパネルを開く。`dev/check.sh` は同じ設定を tmux で起動し、steel の読み込みエラーがあれば表示する。
+`:acp-open` でパネルを開く。
+
+- `dev/check.sh`: 同じ設定を tmux で起動し、steel の読み込みエラーがあれば表示する
+- `dev/test.sh`: 台本どおりに振る舞う偽エージェント `dev/fake-agent.mjs` を相手に、plan・permission・diff・usage・ピッカー・セッション再開などを tmux 越しに確認する
+- `ACP_HX_AGENT="node dev/fake-agent.mjs" HELIX_STEEL_CONFIG=$PWD/dev hx` で偽エージェントを手で触れる（プロンプトの先頭語 `plan` / `tools` / `md` / `all` で場面を選ぶ）
 
 ## 普段の設定に入れる
 

@@ -1,0 +1,54 @@
+#!/bin/sh
+# End-to-end checks against dev/fake-agent.mjs, driven through tmux.
+cd "$(dirname "$0")/.."
+S=acphx-test
+fail=0
+screen() { tmux capture-pane -t $S -p | cut -c135-; }
+expect() {
+  if screen | grep -qF -- "$1"; then echo "ok   $2"; else echo "FAIL $2 (missing: $1)"; fail=1; fi
+}
+keys() { tmux send-keys -t $S "$@"; }
+type_() { tmux send-keys -t $S -l "$1"; }
+
+tmux kill-session -t $S 2>/dev/null
+tmux new-session -d -s $S -x 200 -y 50 \
+  "cd $PWD && ACP_HX_AGENT='node $PWD/dev/fake-agent.mjs' HELIX_STEEL_CONFIG=$PWD/dev hx 2>/tmp/acp-hx-test-stderr.log"
+sleep 3
+if tmux capture-pane -t $S -p | grep -q "error\["; then
+  tmux capture-pane -t $S -p | grep -A8 "error\["; tmux kill-session -t $S; exit 1
+fi
+
+keys ":acp-open" Enter; sleep 2
+expect "Fake Agent" "header shows the agent title"
+expect "◆ Fake 1.0" "status shows the model"
+
+type_ "/re"; sleep 0.5
+expect "/review  Review the diff" "slash command completion"
+keys C-u
+
+type_ "all"; keys Enter; sleep 1.5
+expect "☒ Run the tests" "plan checklist"
+expect "? Edit src/main.rs" "permission prompt"
+expect "+1 -1" "diff stat"
+keys 1; sleep 1.5
+expect "error[E0425]" "failed tool output"
+expect "• first point" "markdown bullets"
+expect "ctx 51k/200k 26%  \$0.43" "usage line"
+expect "Fake session (all)" "session title"
+
+keys C-o; sleep 0.5; type_ "model"; keys Enter; sleep 0.3; keys Down Enter; sleep 0.8
+expect "◆ Fake Turbo" "model picker"
+
+keys BTab; sleep 0.8
+expect "⏵⏵ Plan" "shift-tab cycles mode"
+
+keys C-r; sleep 0.5; keys Enter; sleep 1
+expect "an old answer" "resume a session"
+
+keys Escape; sleep 0.3
+keys ":acp-close" Enter; sleep 0.5
+if screen | grep -qF "Fake Agent"; then echo "FAIL close hides the panel"; fail=1; else echo "ok   close hides the panel"; fi
+
+if [ -s /tmp/acp-hx-test-stderr.log ]; then echo "FAIL stderr output:"; cat /tmp/acp-hx-test-stderr.log; fail=1; fi
+tmux kill-session -t $S
+exit $fail
