@@ -7,6 +7,7 @@ const update = (sessionId, update) => out({ method: "session/update", params: { 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const pending = new Map();
 let nextId = 1;
+let clientCapabilities = {};
 const request = (method, params) =>
   new Promise((resolve) => {
     const id = `fake-${nextId++}`;
@@ -48,6 +49,29 @@ async function scenario(sid, name) {
     update(sid, { sessionUpdate: "tool_call", toolCallId: "t3", title: "cargo test", kind: "execute", status: "failed",
       content: [{ type: "content", content: { type: "text", text: "```console\nerror[E0425]: cannot find value `x`\n```" } }] });
   }
+  if (name === "ask") {
+    if (!clientCapabilities.elicitation?.form) {
+      update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "no form elicitation" } });
+      return;
+    }
+    update(sid, { sessionUpdate: "tool_call", toolCallId: "t4", title: "AskUserQuestion", kind: "other", status: "pending" });
+    // the shape claude-agent-acp gives AskUserQuestion
+    const res = await request("elicitation/create", {
+      mode: "form", sessionId: sid, toolCallId: "t4", message: "Please answer the following questions.",
+      requestedSchema: { type: "object", properties: {
+        question_0: { type: "string", title: "Language", description: "Which language?",
+          oneOf: [{ const: "Rust", title: "Rust", description: "fast and safe" }, { const: "Go", title: "Go" }] },
+        question_0_custom: { type: "string", title: "Other" },
+        question_1: { type: "array", title: "Extras", description: "Which extras?",
+          items: { anyOf: [{ const: "tests", title: "tests" }, { const: "docs", title: "docs" }, { const: "ci", title: "ci" }] } },
+        question_1_custom: { type: "string", title: "Other" },
+      } },
+    });
+    update(sid, { sessionUpdate: "tool_call_update", toolCallId: "t4", status: "completed" });
+    const c = res.content ?? {};
+    const answer = [res.action, c.question_0, (c.question_1 ?? []).join(","), c.question_1_custom].filter(Boolean).join(" | ");
+    update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `answers: ${answer}` } });
+  }
   if (name === "md" || name === "all") {
     const text = "## Summary\n\nChanged **one** line in `main.rs`, see [docs](https://example.com).\nThis sentence continues\nafter a soft break.\n\n- first *point*\n- second point\n\n1. 番号付きの項目はとても長いので折り返したときに字下げがそろっているかを確認します\n2. two\n\n| 項目 | 値 |\n|---|:--:|\n| `mode` | Manual |\n| model | Opus |\n\n| # | とても長い見出しの列 | 説明 | 期待される表示 |\n|---|---|---|---|\n| 1 | 折りたたみ | long tool output is collapsed | +4 lines |\n\n```rust\nfn main() {}\n```\n";
     for (const chunk of text.match(/.{1,12}/gs)) {
@@ -67,6 +91,7 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
     return;
   }
   const { id, method, params } = msg;
+  if (method === "initialize") clientCapabilities = params.clientCapabilities ?? {};
   if (method === "initialize") out({ id, result: { protocolVersion: 1, agentInfo: { name: "fake", title: "Fake Agent", version: "0" }, agentCapabilities: {} } });
   else if (method === "session/new") {
     configOptions = configOptions.map((o) => (o.id === "mode" ? { ...o, currentValue: "default" } : o));

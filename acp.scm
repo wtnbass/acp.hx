@@ -204,6 +204,7 @@
 (define *acp-files* '()) ; workspace files for @ completion
 
 (define *acp-permission* #f) ; hash: id title content options index
+(define *acp-question* #f)   ; hash: id message questions step index other picks content
 
 (define *acp-open?* #f)
 (define *acp-focused?* #f)
@@ -318,6 +319,7 @@
     (set! *acp-status* 'stopped)
     (set! *acp-busy* 0)
     (set! *acp-permission* #f)
+    (set! *acp-question* #f)
     (acp-error! (string-append "agent exited" (acp-log-tail) "\n(log: " *acp-log* ")"))))
 
 ;; last lines of the agent's stderr, to explain why it died
@@ -383,7 +385,9 @@
    "initialize"
    (hash "protocolVersion" 1
          "clientCapabilities" (hash "fs" (hash "readTextFile" #f "writeTextFile" #f)
-                                    "terminal" #f)
+                                    "terminal" #f
+                                    ;; lets Claude Code ask questions (AskUserQuestion)
+                                    "elicitation" (hash "form" (hash)))
          "clientInfo" (hash "name" "acp.hx" "title" "acp.hx" "version" "0.2.0"))
    (lambda (result)
      (define title (get result 'agentInfo 'title))
@@ -505,8 +509,9 @@
   ;; the panel may be hidden or unfocused while the agent works
   (when (and (not (acp-busy?)) (not *acp-focused?*))
     (set-status! (string-append "acp: " *acp-agent-title* " finished")))
-  (when (and (not (acp-busy?)) *acp-permission*)
-    (set! *acp-permission* #f)))
+  (when (not (acp-busy?))
+    (set! *acp-permission* #f)
+    (set! *acp-question* #f)))
 
 ;;@doc
 ;; Interrupt the running turn.
@@ -514,7 +519,8 @@
   (when (and *acp-session-id* (acp-busy?))
     (acp-notify! "session/cancel" (hash "sessionId" *acp-session-id*))
     ;; a pending permission prompt is answered as cancelled per the protocol
-    (when *acp-permission* (acp-answer-permission! #f))))
+    (when *acp-permission* (acp-answer-permission! #f))
+    (when *acp-question* (acp-finish-question! (hash "action" "cancel")))))
 
 ;; spinner + elapsed time while a turn runs
 (define (acp-start-ticker!)
@@ -694,6 +700,7 @@
      (set! *acp-scroll* 0)
      ;; the answer is typed in the panel, so pull focus there
      (acp-focus)]
+    [(equal? method "elicitation/create") (acp-ask! id params)]
     [else (acp-respond-error! id -32601 (string-append "method not found: " method))]))
 
 (define (acp-answer-permission! option)
@@ -704,6 +711,77 @@
                       (if option
                           (hash "outcome" "selected" "optionId" (get option 'optionId))
                           (hash "outcome" "cancelled")))))
+
+;;; ===========================================================================
+;;; questions (AskUserQuestion arrives as a form elicitation)
+
+;; The form holds question_<n> (a single or multi select) and question_<n>_custom
+;; (a free-text answer). Returns the questions in order, or '() for other forms.
+(define (form-questions schema)
+  (define props (or (get schema 'properties) (hash)))
+  (let loop ([i 0] [acc '()])
+    (define key (string-append "question_" (number->string i)))
+    (define p (get props (string->symbol key)))
+    (define multi? (and p (equal? (get p 'type) "array")))
+    (define opts (and p (if multi? (get p 'items 'anyOf) (get p 'oneOf))))
+    (if (list? opts)
+        (loop (+ i 1)
+              (cons (hash 'key key
+                          'title (get p 'title)
+                          'text (get p 'description)
+                          'multi? multi?
+                          'other? (hash? (get props (string->symbol (string-append key "_custom"))))
+                          'options (map (lambda (o)
+                                          (hash 'value (get o 'const)
+                                                'label (or (get o 'title) (to-string (get o 'const)))
+                                                'description (get o 'description)))
+                                        opts))
+                    acc))
+        (reverse acc))))
+
+(define (acp-ask! id params)
+  (define questions (form-questions (get params 'requestedSchema)))
+  (cond
+    [(null? questions)
+     (acp-info! (string-append "declined a form the panel cannot show: " (or (get params 'message) "")))
+     (acp-respond! id (hash "action" "decline"))]
+    [else
+     (set! *acp-question* (hash 'id id 'message (or (get params 'message) "") 'questions questions
+                                'content (hash)))
+     (acp-question-step! 0)
+     (set! *acp-scroll* 0)
+     (acp-focus)]))
+
+(define (acp-question-put! key value)
+  (set! *acp-question* (hash-insert *acp-question* key value)))
+
+(define (acp-question-step! step)
+  (acp-question-put! 'step step)
+  (acp-question-put! 'index 0)
+  (acp-question-put! 'other "")
+  (acp-question-put! 'picks '()))
+
+(define (current-question)
+  (list-ref (get *acp-question* 'questions) (get *acp-question* 'step)))
+
+;; record the current answer (#f when only the free text is given) and move on,
+;; replying once every question is answered
+(define (acp-question-answer! value)
+  (define key (get (current-question) 'key))
+  (define other (trim (get *acp-question* 'other)))
+  (define content (get *acp-question* 'content))
+  (define with-value (if value (hash-insert content key value) content))
+  (acp-question-put! 'content
+                     (if (equal? other "") with-value (hash-insert with-value (string-append key "_custom") other)))
+  (define step (+ (get *acp-question* 'step) 1))
+  (if (< step (length (get *acp-question* 'questions)))
+      (acp-question-step! step)
+      (acp-finish-question! (hash "action" "accept" "content" (get *acp-question* 'content)))))
+
+(define (acp-finish-question! response)
+  (define id (get *acp-question* 'id))
+  (set! *acp-question* #f)
+  (acp-respond! id response))
 
 ;;; ===========================================================================
 ;;; follow-along
@@ -1646,6 +1724,52 @@
         opts (indices (length opts)))
    (list (list (seg "   ↑↓ select · enter confirm · d details · esc reject" 'dim)))))
 
+;; one question at a time: its options, then a free-text row when the form has one
+(define (question-lines width)
+  (define qs *acp-question*)
+  (define q (current-question))
+  (define opts (get q 'options))
+  (define total (length (get qs 'questions)))
+  (define index (get qs 'index))
+  (define picks (get qs 'picks))
+  (define other (get qs 'other))
+  (define (marker i) (seg (if (= i index) " ❯ " "   ") 'accent))
+  (define (number i) (string-append (number->string (+ i 1)) ". "))
+  (append
+   (list (list (seg "? " 'warning)
+               (seg (or (get q 'title) "Question") 'tool-title)
+               (seg (if (> total 1)
+                        (string-append "  " (number->string (+ (get qs 'step) 1)) "/" (number->string total))
+                        "")
+                    'dim)))
+   (apply append
+          (map (lambda (l) (wrap-segs (list (seg l 'text)) width '()))
+               (split-many (or (get q 'text) (get qs 'message)) "\n")))
+   (map (lambda (o i)
+          (define selected? (= i index))
+          (list (marker i)
+                (seg (string-append (number i)
+                                    (cond [(not (get q 'multi?)) ""]
+                                          [(member (get o 'value) picks) "[x] "]
+                                          [else "[ ] "])
+                                    (get o 'label))
+                     (if selected? 'accent 'text))
+                (seg (if (get o 'description) (string-append "  " (get o 'description)) "") 'dim)))
+        opts (indices (length opts)))
+   (if (get q 'other?)
+       (let ([i (length opts)])
+         (list (list (marker i)
+                     (seg (number i) (if (= i index) 'accent 'text))
+                     (if (equal? other "")
+                         (seg "Type something" 'dim)
+                         (seg other 'text))
+                     (seg (if (= i index) "▏" "") 'accent))))
+       '())
+   (list (list (seg (if (get q 'multi?)
+                        "   space toggle · enter submit · esc skip"
+                        "   ↑↓ select · enter confirm · esc skip")
+                    'dim)))))
+
 (define (welcome-lines)
   (define (row key text) (list (seg "  " 'dim) (seg key 'accent) (seg (string-append "  " text) 'dim)))
   (list (list (seg (if (equal? *acp-status* 'ready) "Ask anything about this workspace." "Starting the agent…") 'bold))
@@ -1708,9 +1832,13 @@
   ;; footer, bottom-up
   (define bottom (+ y0 h -1))
   (draw-segs frame cx bottom (hint-segs) cw #f)
+  (define prompt-lines
+    (cond [*acp-permission* (permission-lines cw)]
+          [*acp-question* (question-lines cw)]
+          [else #f]))
   (define footer-top
-    (if *acp-permission*
-        (let* ([ls (permission-lines cw)]
+    (if prompt-lines
+        (let* ([ls prompt-lines]
                [top (- bottom (length ls))])
           (draw-segs frame cx (- top 1) rule cw #f)
           (let loop ([ls ls] [y top])
@@ -1791,7 +1919,7 @@
     (draw-segs frame (+ x0 w -12) body-top (list (seg (string-append "↑ " (number->string *acp-scroll*) " more") 'dim)) 11 #f)))
 
 (define (acp-cursor state rect)
-  (if (and *acp-focused?* (not *acp-permission*) (not *acp-picker*)) *acp-cursor-pos* #f))
+  (if (and *acp-focused?* (not *acp-permission*) (not *acp-question*) (not *acp-picker*)) *acp-cursor-pos* #f))
 
 ;;; ===========================================================================
 ;;; picker (settings, sessions)
@@ -1957,6 +2085,59 @@
     [else void])
   event-result/consume)
 
+(define (acp-handle-question-key event)
+  (define ch (key-event-char event))
+  (define q (current-question))
+  (define opts (get q 'options))
+  (define n (length opts))
+  (define last-row (if (get q 'other?) n (- n 1)))
+  (define index (get *acp-question* 'index))
+  (define on-other? (= index n))
+  (define other (get *acp-question* 'other))
+  (define (toggle! i)
+    (define v (get (list-ref opts i) 'value))
+    (define picks (get *acp-question* 'picks))
+    (acp-question-put! 'picks (if (member v picks) (filter (lambda (p) (not (equal? p v))) picks) (cons v picks))))
+  ;; keep the option order rather than the order they were ticked
+  (define (picked)
+    (define picks (get *acp-question* 'picks))
+    (filter (lambda (v) (member v picks)) (map (lambda (o) (get o 'value)) opts)))
+  (cond
+    [(key-event-escape? event) (acp-finish-question! (hash "action" "decline"))]
+    [(and (ctrl? event) (equal? ch #\c)) (acp-cancel)]
+    [(key-event-enter? event)
+     (cond
+       [(get q 'multi?)
+        ;; enter on an option with nothing ticked takes that option
+        (when (and (null? (get *acp-question* 'picks)) (not on-other?) (string-blank? other))
+          (toggle! index))
+        (acp-question-answer! (picked))]
+       [on-other? (unless (string-blank? other) (acp-question-answer! #f))]
+       [else (acp-question-answer! (get (list-ref opts index) 'value))])]
+    [(or (key-event-down? event) (and (ctrl? event) (equal? ch #\n)))
+     (acp-question-put! 'index (min (+ index 1) last-row))]
+    [(or (key-event-up? event) (and (ctrl? event) (equal? ch #\p)))
+     (acp-question-put! 'index (max 0 (- index 1)))]
+    [on-other?
+     (cond [(backspace? event)
+            (acp-question-put! 'other (if (equal? other "") other (substring other 0 (- (string-length other) 1))))]
+           [(and (ctrl? event) (equal? ch #\u)) (acp-question-put! 'other "")]
+           [(and (char? ch) (not (ctrl? event))) (acp-question-put! 'other (string-append other (string ch)))]
+           [else void])]
+    [(and (char? ch) (char-digit? ch))
+     (define i (- (char->integer ch) (char->integer #\1)))
+     (cond [(or (< i 0) (> i last-row)) void]
+           [(= i n) (acp-question-put! 'index i)]
+           [(get q 'multi?) (acp-question-put! 'index i) (toggle! i)]
+           [else (acp-question-answer! (get (list-ref opts i) 'value))])]
+    [(and (equal? ch #\space) (get q 'multi?)) (toggle! index)]
+    ;; typing anywhere else starts the free-text answer
+    [(and (char? ch) (not (ctrl? event)) (get q 'other?))
+     (acp-question-put! 'index n)
+     (acp-question-put! 'other (string-append other (string ch)))]
+    [else void])
+  event-result/consume)
+
 (define (acp-scroll-by! n)
   (set! *acp-scroll* (max 0 (+ *acp-scroll* n))))
 
@@ -1974,6 +2155,11 @@
   (define ch (and (key-event? event) (key-event-char event)))
   (define completing? (pair? (completion-items)))
   (cond
+    [(and (paste-event? event) *acp-question*)
+     (when (get (current-question) 'other?)
+       (acp-question-put! 'index (length (get (current-question) 'options)))
+       (acp-question-put! 'other (string-append (get *acp-question* 'other) (paste-event-string event))))
+     event-result/consume]
     [(paste-event? event) (input-insert! (paste-event-string event)) event-result/consume]
     [(mouse-event? event)
      (define dir (mouse-scroll event))
@@ -1986,6 +2172,7 @@
            [else (acp-unfocus!) event-result/ignore])]
     [(not (key-event? event)) event-result/ignore]
     [*acp-permission* (acp-handle-permission-key event)]
+    [*acp-question* (acp-handle-question-key event)]
     [(key-event-escape? event) (acp-unfocus!) event-result/consume]
     [(and (key-event-tab? event) (shift? event)) (acp-cycle-mode) event-result/consume]
     [(key-event-tab? event) (acp-complete!) event-result/consume]
@@ -2141,6 +2328,7 @@
   (set! *acp-session-id* #f)
   (set! *acp-busy* 0)
   (set! *acp-permission* #f)
+  (set! *acp-question* #f)
   (set! *acp-config-options* '())
   (set! *acp-commands* '())
   (set! *acp-usage* #f)

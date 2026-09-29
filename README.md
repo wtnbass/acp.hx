@@ -99,6 +99,8 @@ Then run `:acp-open`.
 
 While a permission request is pending: ↑ ↓ or number keys to choose, Enter to confirm, `d` to open the full diff or plan, Esc to reject.
 
+When Claude asks a question (AskUserQuestion): ↑ ↓ or number keys to choose, Space to tick options of a multi-select, type to give your own answer, Enter to confirm, Esc to skip.
+
 Clicking the header row of a tool call or a thought expands or collapses it. Clicking the body of a tool call opens the file it touched at the right line.
 
 ## Commands
@@ -147,6 +149,7 @@ Compared with the Claude integrations in Zed and VS Code:
 | Tool calls with status, diffs and output, expandable one by one | ✓ |
 | Permission prompts with a diff preview | ✓ |
 | Plan mode approval | ✓ (`d` opens the full plan) |
+| Questions from Claude (AskUserQuestion) | ✓ (no option previews) |
 | Show and change mode, model, effort and fast mode | ✓ |
 | Context usage, cost and rate limits | ✓ |
 | Slash commands, `@` files, selections and images as context | ✓ |
@@ -168,8 +171,8 @@ HELIX_STEEL_CONFIG=$PWD/dev hx
 `dev/init.scm` loads the plugin from this checkout, so your own helix config is left alone.
 
 - `dev/check.sh` starts helix with the dev config in tmux and prints any steel load error
-- `dev/test.sh` runs end-to-end checks through tmux against `dev/fake-agent.mjs`, a scripted agent that plays plans, permissions, diffs, markdown, usage, sessions and a crash without calling a model
-- `ACP_HX_AGENT="node dev/fake-agent.mjs" HELIX_STEEL_CONFIG=$PWD/dev hx` lets you drive the fake agent by hand; the first word of a prompt (`plan`, `tools`, `md`, `all`, `crash`) picks the scenario
+- `dev/test.sh` runs end-to-end checks through tmux against `dev/fake-agent.mjs`, a scripted agent that plays plans, permissions, questions, diffs, markdown, usage, sessions and a crash without calling a model
+- `ACP_HX_AGENT="node dev/fake-agent.mjs" HELIX_STEEL_CONFIG=$PWD/dev hx` lets you drive the fake agent by hand; the first word of a prompt (`plan`, `tools`, `ask`, `md`, `all`, `crash`) picks the scenario
 
 ### How it works
 
@@ -183,6 +186,7 @@ HELIX_STEEL_CONFIG=$PWD/dev hx
 - `initialize`, `session/new`, `session/load`, `session/list`, `session/prompt`, `session/cancel`, `session/set_config_option`
 - `session/update`: `agent_message_chunk`, `agent_thought_chunk`, `user_message_chunk`, `tool_call`, `tool_call_update`, `plan`, `config_option_update`, `current_mode_update`, `available_commands_update`, `usage_update`, `session_info_update`
 - `session/request_permission`
+- `elicitation/create` in form mode, for the shape claude-agent-acp gives AskUserQuestion (`question_<n>` selects with `question_<n>_custom` text); other forms are declined
 - Prompt content: `text`, `resource_link`, `resource` (selections), `image`
 - `fs/*` and `terminal/*` are declared unsupported in the client capabilities
 

@@ -83,6 +83,17 @@ keys ":acp-focus" Enter; sleep 0.3
 keys C-r; sleep 0.5; keys Enter; sleep 1
 expect "an old answer" "resume a session"
 
+type_ "ask"; keys Enter
+expect "Which language?" "a question shows its options"
+keys 2
+expect "Which extras?" "a digit answers and moves to the next question"
+keys Space Down Down Space; type_ "lint"; keys Enter
+expect "answers: accept | Go | tests,ci | lint" "multi-select and free text are sent back"
+type_ "ask"; keys Enter
+expect "Which language?" "a second question prompt"
+keys Escape
+expect "answers: decline" "esc skips the questions"
+
 type_ "md"; keys Enter; sleep 1
 
 keys Escape; sleep 0.3
