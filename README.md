@@ -84,7 +84,7 @@ Then run `:acp-open`.
 | Alt-Enter / Ctrl-j | Newline |
 | Esc | Back to the editor; the panel stays open |
 | Ctrl-c | Interrupt the running turn, or clear the input |
-| Shift-Tab | Cycle the mode (Manual → Accept edits → Plan → Auto) |
+| Shift-Tab | Cycle the mode (Manual → Accept edits → Plan → Auto); new sessions keep it |
 | Ctrl-p | Action menu: every action with its key |
 | Ctrl-o | Settings: mode, model, effort, fast mode |
 | Ctrl-r | Resume an earlier session |

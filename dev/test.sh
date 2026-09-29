@@ -75,6 +75,10 @@ expect "Fake Agent" "action menu runs an action"
 
 keys BTab; sleep 0.8
 expect "⏵⏵ Plan" "shift-tab cycles mode"
+keys Escape; sleep 0.3
+keys ":acp-new-session" Enter; sleep 1
+expect "⏵⏵ Plan" "a new session keeps the mode"
+keys ":acp-focus" Enter; sleep 0.3
 
 keys C-r; sleep 0.5; keys Enter; sleep 1
 expect "an old answer" "resume a session"

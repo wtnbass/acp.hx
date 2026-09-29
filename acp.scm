@@ -406,17 +406,29 @@
      (set! *acp-session-title* #f)
      (set! *acp-usage* #f)
      (set! *acp-status* 'starting)
+     (define mode (acp-option-by-category "mode"))
      (acp-request! "session/new"
                    (hash "cwd" *acp-cwd* "mcpServers" *acp-mcp-servers*)
                    (lambda (result)
                      (set! *acp-session-id* (get result 'sessionId))
-                     (acp-apply-session-result! result))
+                     (acp-apply-session-result! result)
+                     (when mode (acp-carry-over-mode! (get mode 'currentValue))))
                    (lambda (err)
                      (set! *acp-status* 'stopped)
                      (acp-error! (to-string "could not start a session: " (or (get err 'message) err)))
                      ;; ACP reserves -32000 for "authentication required"
                      (when (equal? (->int (get err 'code)) -32000)
                        (acp-info! "log in with the agent's own CLI first (for Claude Code: run `claude` and /login)"))))]))
+
+;; Keep the mode the user switched to across new sessions, except full-access modes.
+(define (acp-carry-over-mode! value)
+  (define option (acp-option-by-category "mode"))
+  (define v (and option
+                 (find-first (lambda (x) (equal? (get x 'value) value)) (or (get option 'options) '()))))
+  (when (and v
+             (not (equal? (get v '_meta 'kind) "full_access"))
+             (not (equal? value (get option 'currentValue))))
+    (acp-set-option! (get option 'id) value)))
 
 ;;@doc
 ;; Pick a previous conversation of this workspace and resume it.

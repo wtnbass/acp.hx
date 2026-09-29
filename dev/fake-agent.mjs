@@ -69,6 +69,7 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
   const { id, method, params } = msg;
   if (method === "initialize") out({ id, result: { protocolVersion: 1, agentInfo: { name: "fake", title: "Fake Agent", version: "0" }, agentCapabilities: {} } });
   else if (method === "session/new") {
+    configOptions = configOptions.map((o) => (o.id === "mode" ? { ...o, currentValue: "default" } : o));
     out({ id, result: { sessionId: "fake-session", configOptions } });
     update("fake-session", { sessionUpdate: "available_commands_update", availableCommands: [{ name: "review", description: "Review the diff" }, { name: "init", description: "Create CLAUDE.md" }] });
   } else if (method === "session/set_config_option") {
