@@ -1858,7 +1858,7 @@
     [(or (key-event-up? event) (and (ctrl? event) (equal? ch #\p)))
      (set-index! (max 0 (- index 1)))
      event-result/consume]
-    [(key-event-backspace? event)
+    [(backspace? event)
      (define q (get *acp-picker* 'query))
      (set! *acp-picker* (hash-insert (hash-insert *acp-picker* 'query
                                                   (if (> (string-length q) 0)
@@ -1879,6 +1879,8 @@
 (define (ctrl? event) (equal? (key-event-modifier event) key-modifier-ctrl))
 (define (alt? event) (equal? (key-event-modifier event) key-modifier-alt))
 (define (shift? event) (equal? (key-event-modifier event) key-modifier-shift))
+(define (backspace? event)
+  (or (key-event-backspace? event) (and (ctrl? event) (equal? (key-event-char event) #\h))))
 
 (define (input-set! s)
   (set! *acp-before* (reverse (string->list s)))
@@ -1984,6 +1986,13 @@
        [(get item 'submit?) ((get item 'apply)) (acp-submit!)]
        [else ((get item 'apply))])
      event-result/consume]
+    [(backspace? event)
+     (cond [(pair? *acp-before*) (set! *acp-before* (cdr *acp-before*))]
+           [(and (input-empty?) (pair? *acp-attachments*))
+            (set! *acp-attachments* (reverse (cdr (reverse *acp-attachments*))))]
+           [else void])
+     (set! *acp-completion-index* 0)
+     event-result/consume]
     [(ctrl? event)
      (cond
        [(equal? ch #\c) (if (acp-busy?) (acp-cancel) (input-set! ""))]
@@ -2000,13 +2009,6 @@
        [(equal? ch #\e) (set! *acp-before* (append (reverse *acp-after*) *acp-before*)) (set! *acp-after* '())]
        [(equal? ch #\d) (unless (null? *acp-after*) (set! *acp-after* (cdr *acp-after*)))]
        [else void])
-     event-result/consume]
-    [(key-event-backspace? event)
-     (cond [(pair? *acp-before*) (set! *acp-before* (cdr *acp-before*))]
-           [(and (input-empty?) (pair? *acp-attachments*))
-            (set! *acp-attachments* (reverse (cdr (reverse *acp-attachments*))))]
-           [else void])
-     (set! *acp-completion-index* 0)
      event-result/consume]
     [(key-event-delete? event)
      (unless (null? *acp-after*) (set! *acp-after* (cdr *acp-after*)))
