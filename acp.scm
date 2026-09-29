@@ -1647,7 +1647,7 @@
         (row "esc   " "back to the editor, the panel stays")))
 
 (define (hint-segs)
-  (list (seg "⏎ send · ^p actions · ⇧⇥ mode · ^o settings · ^r sessions · esc editor" 'dim)))
+  (list (seg "^p actions · esc editor" 'dim)))
 
 (define (acp-render state rect frame)
   (define t0 (now-ms))
