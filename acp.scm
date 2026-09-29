@@ -308,8 +308,7 @@
          (if (cdr handler)
              ((cdr handler) err)
              (acp-error! (to-string (or (get err 'message) "request failed"))))]
-        [else ((car handler) (get msg 'result))])]))
-  (acp-redraw!))
+        [else ((car handler) (get msg 'result))])])))
 
 (define (acp-on-exit generation)
   (when (= generation *acp-generation*)
@@ -319,8 +318,7 @@
     (set! *acp-status* 'stopped)
     (set! *acp-busy* 0)
     (set! *acp-permission* #f)
-    (acp-error! (string-append "agent exited" (acp-log-tail) "\n(log: " *acp-log* ")"))
-    (acp-redraw!)))
+    (acp-error! (string-append "agent exited" (acp-log-tail) "\n(log: " *acp-log* ")"))))
 
 ;; last lines of the agent's stderr, to explain why it died
 (define (acp-log-tail)
@@ -516,11 +514,8 @@
   (if (acp-busy?)
       (begin
         (set! *acp-spinner-frame* (+ *acp-spinner-frame* 1))
-        (acp-redraw!)
         (enqueue-thread-local-callback-with-delay 120 acp-tick!))
-      (begin
-        (set! *acp-ticking?* #f)
-        (acp-redraw!))))
+      (set! *acp-ticking?* #f)))
 
 ;;; ===========================================================================
 ;;; config options (mode / model / effort / ...)
@@ -929,8 +924,7 @@
 ;; attaching is usually followed by a question, so the panel takes focus
 (define (acp-attach! label block)
   (set! *acp-attachments* (append *acp-attachments* (list (hash 'label label 'block block))))
-  (if *acp-proc* (acp-focus) (acp-open))
-  (acp-redraw!))
+  (if *acp-proc* (acp-focus) (acp-open)))
 
 ;;@doc
 ;; Attach the current file to the next prompt.
@@ -1432,9 +1426,6 @@
 
 ;;; ===========================================================================
 ;;; rendering
-
-(define (acp-redraw!)
-  (when *acp-open?* (helix.redraw)))
 
 (define (acp-panel-width rect)
   (max 30 (min *acp-width* (- (area-width rect) 30))))
@@ -2059,7 +2050,6 @@
   (cond
     [(and dir (in-panel? event))
      (acp-scroll-by! (if (equal? dir 'up) 3 -3))
-     (acp-redraw!)
      event-result/consume]
     [(and (mouse-event? event) (in-panel? event) (equal? (event-mouse-kind event) 0))
      ;; left click opens a tool call's file, anywhere else focuses the panel
@@ -2147,8 +2137,7 @@
 ;;@doc
 ;; Toggle showing tool output, diffs and thinking in full.
 (define (acp-expand-toggle)
-  (set! *acp-expand?* (not *acp-expand?*))
-  (acp-redraw!))
+  (set! *acp-expand?* (not *acp-expand?*)))
 
 ;;@doc
 ;; Widen the sidebar by 8 columns.
