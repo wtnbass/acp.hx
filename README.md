@@ -33,10 +33,10 @@ This is an unofficial project and is not affiliated with Anthropic.
 
 ## Installation
 
-Link the repository into your steel cogs directory:
+Install with `forge`:
 
 ```sh
-ln -s /path/to/acp.hx ~/.local/share/steel/cogs/acp
+forge pkg install https://github.com/wtnbass/acp.hx.git
 ```
 
 In `init.scm`:
