@@ -2306,12 +2306,9 @@
     (set-editor-clip-right! 0)))
 
 ;;@doc
-;; Toggle the sidebar: open -> focus -> close.
+;; Close the sidebar if it is open, otherwise open and focus it.
 (define (acp-toggle)
-  (cond
-    [(not *acp-open?*) (acp-open)]
-    [(not *acp-focused?*) (acp-focus)]
-    [else (acp-close)]))
+  (if *acp-open?* (acp-close) (acp-open)))
 
 ;;@doc
 ;; Stop the agent process.

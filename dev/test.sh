@@ -107,6 +107,11 @@ expect "fake agent: simulated crash" "agent exit shows the log tail"
 keys Escape; sleep 0.3
 keys ":acp-close" Enter; sleep 0.5
 if screen | grep -qF "Fake Agent"; then echo "FAIL close hides the panel"; fail=1; else echo "ok   close hides the panel"; fi
+keys ":acp-toggle" Enter
+expect "Fake Agent" "toggle opens a closed panel"
+keys Escape; sleep 0.3
+keys ":acp-toggle" Enter; sleep 0.5
+if screen | grep -qF "Fake Agent"; then echo "FAIL toggle closes an unfocused panel"; fail=1; else echo "ok   toggle closes an unfocused panel"; fi
 
 if [ -s /tmp/acp-hx-test-stderr.log ]; then echo "FAIL stderr output:"; cat /tmp/acp-hx-test-stderr.log; fail=1; fi
 tmux kill-session -t $S
