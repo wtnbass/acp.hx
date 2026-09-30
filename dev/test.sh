@@ -61,8 +61,7 @@ click $((row + 1))
 if tmux capture-pane -t $S -p | grep -q "NOR   README.md"; then echo "ok   clicking a tool call opens its file"; else echo "FAIL clicking a tool call opens its file"; fail=1; fi
 keys ":acp-focus" Enter; sleep 0.3
 
-keys Escape; sleep 0.3
-keys ":acp-review" Enter; sleep 0.8
+keys C-p; sleep 0.5; type_ "review"; keys Enter; sleep 0.8
 expect '+    println!("hello");' "review opens the session's edits"
 keys ":bc" Enter; sleep 0.3
 keys ":acp-focus" Enter; sleep 0.3
@@ -75,10 +74,8 @@ expect "Fake Agent" "action menu runs an action"
 
 keys BTab; sleep 0.8
 expect "⏵⏵ Plan" "shift-tab cycles mode"
-keys Escape; sleep 0.3
-keys ":acp-new-session" Enter; sleep 1
+keys C-n; sleep 1
 expect "⏵⏵ Plan" "a new session keeps the mode"
-keys ":acp-focus" Enter; sleep 0.3
 
 keys C-r; sleep 0.5; keys Enter; sleep 1
 expect "an old answer" "resume a session"
@@ -94,13 +91,6 @@ expect "Which language?" "a second question prompt"
 keys Escape
 expect "answers: decline" "esc skips the questions"
 
-type_ "md"; keys Enter; sleep 1
-
-keys Escape; sleep 0.3
-keys ":acp-insert-code" Enter; sleep 0.5
-expect "fn main() {}" "insert the last code block"
-
-keys ":acp-focus" Enter; sleep 0.3
 type_ "crash"; keys Enter
 expect "fake agent: simulated crash" "agent exit shows the log tail"
 

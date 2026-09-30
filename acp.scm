@@ -16,30 +16,9 @@
          acp-close
          acp-toggle
          acp-focus
-         acp-quit
-         acp-restart
-         acp-cancel
-         acp-new-session
-         acp-sessions
-         acp-settings
-         acp-mode
-         acp-model
-         acp-effort
-         acp-cycle-mode
          acp-add-file
          acp-add-selection
          acp-add-image
-         acp-follow-toggle
-         acp-expand-toggle
-         acp-diff
-         acp-review
-         acp-undo-edit
-         acp-menu
-         acp-retry
-         acp-wider
-         acp-yank
-         acp-insert-code
-         acp-narrower
          acp-configure!)
 
 ;;; ===========================================================================
@@ -399,7 +378,6 @@
   (when (list? options) (set! *acp-config-options* options))
   (set! *acp-status* 'ready))
 
-;;@doc
 ;; Start a fresh conversation.
 (define (acp-new-session)
   (cond
@@ -434,7 +412,6 @@
              (not (equal? value (get option 'currentValue))))
     (acp-set-option! (get option 'id) value)))
 
-;;@doc
 ;; Pick a previous conversation of this workspace and resume it.
 (define (acp-sessions)
   (if (not *acp-proc*)
@@ -513,7 +490,6 @@
     (set! *acp-permission* #f)
     (set! *acp-question* #f)))
 
-;;@doc
 ;; Interrupt the running turn.
 (define (acp-cancel)
   (when (and *acp-session-id* (acp-busy?))
@@ -580,19 +556,15 @@
       (acp-pick-option! option)
       (set-status! (string-append "acp: the agent has no " category " option"))))
 
-;;@doc
 ;; Pick the session mode (permission behaviour).
 (define (acp-mode) (acp-pick-category! "mode"))
 
-;;@doc
 ;; Pick the model.
 (define (acp-model) (acp-pick-category! "model"))
 
-;;@doc
 ;; Pick the reasoning effort.
 (define (acp-effort) (acp-pick-category! "thought_level"))
 
-;;@doc
 ;; Pick any of the agent's session settings.
 (define (acp-settings)
   (if (null? *acp-config-options*)
@@ -602,7 +574,6 @@
                       *acp-config-options*)
                  (lambda (id) (acp-pick-option! (acp-option-by-id id))))))
 
-;;@doc
 ;; Switch to the next session mode, skipping full-access modes.
 (define (acp-cycle-mode)
   (define option (acp-option-by-category "mode"))
@@ -840,7 +811,6 @@
     [(pair? locs) (acp-open-location! (car locs)) #t]
     [else #f]))
 
-;;@doc
 ;; Toggle whether the editor follows the files the agent reads and edits.
 (define (acp-follow-toggle)
   (set! *acp-follow?* (not *acp-follow?*))
@@ -912,7 +882,6 @@
   (helix.open (acp-write-tmp! (string-append name ".diff")
                               (string-append (string-join (map diff-block-text blocks) "\n") "\n"))))
 
-;;@doc
 ;; Open the pending permission's diff or plan, or the latest edit's diff.
 (define (acp-diff)
   (cond
@@ -927,7 +896,6 @@
          (begin (acp-unfocus!) (acp-open-diff! (or (entry-get e 'title) "edit") (entry-get e 'content)))
          (set-status! "acp: no edits yet"))]))
 
-;;@doc
 ;; Open every edit the agent made in this session as one diff, oldest first.
 (define (acp-review)
   (define edits
@@ -983,7 +951,6 @@
                  (acp-reload-clean-doc! (cons path #f))
                  #t))))))
 
-;;@doc
 ;; Revert the agent's most recent edit that has not been reverted yet.
 ;; The agent is told about it with the next prompt.
 (define (acp-undo-edit)
@@ -2310,13 +2277,11 @@
 (define (acp-toggle)
   (if *acp-open?* (acp-close) (acp-open)))
 
-;;@doc
 ;; Stop the agent process.
 (define (acp-quit)
   (when *acp-proc*
     (kill *acp-proc*)))
 
-;;@doc
 ;; Restart the agent process with a fresh session.
 (define (acp-restart)
   (acp-quit)
@@ -2333,18 +2298,15 @@
   (acp-reset-transcript!)
   (acp-open))
 
-;;@doc
 ;; Toggle showing tool output, diffs and thinking in full.
 (define (acp-expand-toggle)
   (set! *acp-expand?* (not *acp-expand?*)))
 
-;;@doc
 ;; Widen the sidebar by 8 columns.
 (define (acp-wider)
   (set! *acp-width* (+ *acp-width* 8))
   (acp-invalidate-all!))
 
-;;@doc
 ;; Narrow the sidebar by 8 columns.
 (define (acp-narrower)
   (set! *acp-width* (max 30 (- *acp-width* 8)))
@@ -2357,19 +2319,6 @@
   (define e (find-first (lambda (e) (equal? (Entry-kind e) 'agent)) *acp-entries*))
   (and e (trim (entry-get e 'text))))
 
-;; body of the last fenced code block in the text
-(define (last-code-block text)
-  (let loop ([ls (split-many text "\n")] [in? #f] [cur '()] [last-block #f])
-    (cond
-      [(null? ls) (if (and in? (pair? cur)) (string-join (reverse cur) "\n") last-block)]
-      [(starts-with? (trim (car ls)) "```")
-       (if in?
-           (loop (cdr ls) #f '() (string-join (reverse cur) "\n"))
-           (loop (cdr ls) #t '() last-block))]
-      [in? (loop (cdr ls) #t (cons (car ls) cur) last-block)]
-      [else (loop (cdr ls) #f cur last-block)])))
-
-;;@doc
 ;; Copy the agent's last response to the system clipboard.
 (define (acp-yank)
   (define text (last-agent-text))
@@ -2377,26 +2326,12 @@
       (begin (set-register! #\+ (list text)) (set-status! "acp: copied the last response"))
       (set-status! "acp: no response yet")))
 
-;;@doc
-;; Paste the last code block of the agent's last response after the selection.
-(define (acp-insert-code)
-  (define text (last-agent-text))
-  (define code (and text (last-code-block text)))
-  (if code
-      (begin
-        (acp-unfocus!)
-        (set-register! #\" (list (string-append code "\n")))
-        (paste_after))
-      (set-status! "acp: no code block in the last response")))
-
-;;@doc
 ;; Send the last prompt again.
 (define (acp-retry)
   (if (null? *acp-history*)
       (set-status! "acp: nothing to retry")
       (acp-send-prompt! (car *acp-history*))))
 
-;;@doc
 ;; Pick any acp.hx action from a list that also shows its key.
 (define (acp-menu)
   (define actions
@@ -2413,10 +2348,10 @@
           (list "Undo last edit" "" acp-undo-edit)
           (list "Attach current file" "" acp-add-file)
           (list "Copy last response" "" acp-yank)
-          (list "Insert last code block" "" acp-insert-code)
           (list "Expand all output" "^t" acp-expand-toggle)
           (list "Toggle follow-along" "^f" acp-follow-toggle)
           (list "Restart agent" "" acp-restart)
+          (list "Stop agent" "" acp-quit)
           (list "Wider panel" "" acp-wider)
           (list "Narrower panel" "" acp-narrower)
           (list "Close panel" "" acp-close)))
