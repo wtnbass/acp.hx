@@ -16,10 +16,16 @@ expect() {
 keys() { tmux send-keys -t $S "$@"; }
 type_() { tmux send-keys -t $S -l "$1"; }
 
-tmux kill-session -t $S 2>/dev/null
-tmux new-session -d -s $S -x 200 -y 50 \
-  "cd $PWD && ACP_HX_AGENT='node $PWD/dev/fake-agent.mjs' HELIX_STEEL_CONFIG=$PWD/dev hx 2>/tmp/acp-hx-test-stderr.log"
-sleep 3
+STATE=/tmp/acp-hx-test-state
+rm -rf $STATE
+launch() {
+  tmux kill-session -t $S 2>/dev/null
+  tmux new-session -d -s $S -x 200 -y 50 \
+    "cd $PWD && XDG_STATE_HOME=$STATE ACP_HX_AGENT='node $PWD/dev/fake-agent.mjs' HELIX_STEEL_CONFIG=$PWD/dev hx 2>>/tmp/acp-hx-test-stderr.log"
+  sleep 3
+}
+: > /tmp/acp-hx-test-stderr.log
+launch
 if tmux capture-pane -t $S -p | grep -q "error\["; then
   tmux capture-pane -t $S -p | grep -A8 "error\["; tmux kill-session -t $S; exit 1
 fi
@@ -102,6 +108,14 @@ expect "Fake Agent" "toggle opens a closed panel"
 keys Escape; sleep 0.3
 keys ":acp-toggle" Enter; sleep 0.5
 if screen | grep -qF "Fake Agent"; then echo "FAIL toggle closes an unfocused panel"; fail=1; else echo "ok   toggle closes an unfocused panel"; fi
+
+launch
+keys ":acp-open" Enter; sleep 2
+keys C-o; sleep 0.5; type_ "mode"; keys Enter; sleep 0.3; keys Down Enter; sleep 0.8
+expect "⏵⏵ Plan" "switch to plan before restarting"
+launch
+keys ":acp-open" Enter; sleep 2
+expect "⏵⏵ Plan" "restarting helix keeps the mode"
 
 if [ -s /tmp/acp-hx-test-stderr.log ]; then echo "FAIL stderr output:"; cat /tmp/acp-hx-test-stderr.log; fail=1; fi
 tmux kill-session -t $S

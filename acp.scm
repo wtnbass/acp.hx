@@ -389,18 +389,42 @@
      (set! *acp-usage* #f)
      (set! *acp-status* 'starting)
      (define mode (acp-option-by-category "mode"))
+     (define previous (if mode (get mode 'currentValue) (acp-load-mode)))
      (acp-request! "session/new"
                    (hash "cwd" *acp-cwd* "mcpServers" *acp-mcp-servers*)
                    (lambda (result)
                      (set! *acp-session-id* (get result 'sessionId))
                      (acp-apply-session-result! result)
-                     (when mode (acp-carry-over-mode! (get mode 'currentValue))))
+                     (when previous (acp-carry-over-mode! previous)))
                    (lambda (err)
                      (set! *acp-status* 'stopped)
                      (acp-error! (to-string "could not start a session: " (or (get err 'message) err)))
                      ;; ACP reserves -32000 for "authentication required"
                      (when (equal? (->int (get err 'code)) -32000)
                        (acp-info! "log in with the agent's own CLI first (for Claude Code: run `claude` and /login)"))))]))
+
+;; the last mode is kept in a file so it survives restarting helix
+(define (acp-mode-file)
+  (define state (maybe-get-env-var "XDG_STATE_HOME"))
+  (define home (maybe-get-env-var "HOME"))
+  (cond [(Ok? state) (string-append (Ok->value state) "/acp.hx/mode")]
+        [(Ok? home) (string-append (Ok->value home) "/.local/state/acp.hx/mode")]
+        [else #f]))
+
+(define (acp-load-mode)
+  (define path (acp-mode-file))
+  (with-handler (lambda (_) #f)
+                (and path (path-exists? path)
+                     (let ([value (string-replace (read-file path) "\n" "")])
+                       (and (not (equal? value "")) value)))))
+
+(define (acp-save-mode! value)
+  (define path (acp-mode-file))
+  (when (and path (string? value))
+    (with-handler (lambda (_) void)
+                  (begin
+                    (create-directory! (substring path 0 (- (string-length path) 5)))
+                    (write-file path value)))))
 
 ;; Keep the mode the user switched to across new sessions, except full-access modes.
 (define (acp-carry-over-mode! value)
@@ -526,6 +550,9 @@
   (if v (get v 'name) (to-string current)))
 
 (define (acp-replace-option-value! id value)
+  (define option (acp-option-by-id id))
+  (when (and option (equal? (get option 'category) "mode"))
+    (acp-save-mode! value))
   (set! *acp-config-options*
         (map (lambda (o) (if (equal? (get o 'id) id) (hash-insert o 'currentValue value) o))
              *acp-config-options*)))
